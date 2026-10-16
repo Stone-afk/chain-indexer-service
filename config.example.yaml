@@ -1,0 +1,60 @@
+database:
+  dsn: ${POSTGRES_DSN}
+
+chains:
+  ethereum:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 1
+    httpUrl: https://mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 12
+  bsc:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 56
+    httpUrl: https://bsc-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://bsc-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 15
+  polygon:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 137
+    httpUrl: https://polygon-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://polygon-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 100
+  arbitrum:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 42161
+    httpUrl: https://arbitrum-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://arbitrum-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 20
+  optimism:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 10
+    httpUrl: https://optimism-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://optimism-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 20
+  base:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 8453
+    httpUrl: https://base-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://base-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 20
+  avalanche:
+    enabled: true
+    # Replace with the intended deployment start height.
+    startBlock: 0
+    chainId: 43114
+    httpUrl: https://avalanche-mainnet.infura.io/v3/${INFURA_API_KEY}
+    wsUrl: wss://avalanche-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
+    confirmBlocks: 15

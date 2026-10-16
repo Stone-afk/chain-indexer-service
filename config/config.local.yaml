@@ -1,0 +1,53 @@
+database:
+  dsn: "host=127.0.0.1 port=15432 user=postgres password=postgres dbname=chain_indexer_e2e sslmode=disable"
+
+chains:
+  ethereum:
+    enabled: true
+    chainId: 1
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 12
+  bsc:
+    enabled: false
+    chainId: 56
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 15
+  polygon:
+    enabled: false
+    chainId: 137
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 100
+  arbitrum:
+    enabled: false
+    chainId: 42161
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 20
+  optimism:
+    enabled: false
+    chainId: 10
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 20
+  base:
+    enabled: false
+    chainId: 8453
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 20
+  avalanche:
+    enabled: false
+    chainId: 43114
+    startBlock: 0
+    httpUrl: "http://127.0.0.1:8545"
+    wsUrl: "ws://127.0.0.1:8546"
+    confirmBlocks: 15
