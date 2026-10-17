@@ -54,15 +54,18 @@ func TestDecoderDecode(t *testing.T) {
 		check(t, got["amount"], big.NewInt(42))
 	})
 
-	t.Run("uint256 array", func(t *testing.T) {
-		event := parse("event TransferBatch(uint256[] ids)")
-		// One dynamic value: offset 32, length 2, then the two elements.
-		data := "0x" + fmtWord(32) + fmtWord(2) + fmtWord(7) + fmtWord(9)
+	t.Run("ERC1155 Batch uint256 arrays", func(t *testing.T) {
+		event := parse("event TransferBatch(uint256[] ids, uint256[] values)")
+		// Two offsets followed by two equal-length dynamic arrays.
+		data := "0x" + fmtWord(64) + fmtWord(160) +
+			fmtWord(2) + fmtWord(7) + fmtWord(9) +
+			fmtWord(2) + fmtWord(11) + fmtWord(13)
 		got, err := decoder.Decode(event, []string{event.Topic0}, data)
 		if err != nil {
 			t.Fatal(err)
 		}
 		check(t, got["ids"], []*big.Int{big.NewInt(7), big.NewInt(9)})
+		check(t, got["values"], []*big.Int{big.NewInt(11), big.NewInt(13)})
 	})
 
 	t.Run("topic mismatch is unsupported", func(t *testing.T) {
