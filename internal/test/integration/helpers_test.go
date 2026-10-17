@@ -42,6 +42,19 @@ func migrationDir(t *testing.T) string {
 	return filepath.Join(repositoryRoot(t), "script", "postgre")
 }
 
+func initialMigrationDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"000001_initial_schema.up.sql", "000001_initial_schema.down.sql"} {
+		contents, err := os.ReadFile(filepath.Join(migrationDir(t), name))
+		if err != nil {
+			t.Fatalf("read migration %q: %v", name, err)
+		}
+		writeMigrationFile(t, dir, name, string(contents))
+	}
+	return dir
+}
+
 func buildBinary(t *testing.T, packagePath string) string {
 	t.Helper()
 	name := filepath.Base(packagePath)

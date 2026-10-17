@@ -24,41 +24,52 @@ func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status() before bootstrap error = %v", err)
 	}
-	assertSingleMigrationStatus(t, status, false)
+	assertMigrationStatus(t, status, false, false)
 
 	if _, err := runner.Up(ctx); err != nil {
 		t.Fatalf("Up() error = %v", err)
 	}
 	assertInitialSchema(t, db)
 	assertAppliedVersionCount(t, db, 1, 1)
+	assertAppliedVersionCount(t, db, 2, 1)
 
 	if _, err := runner.Up(ctx); err != nil {
 		t.Fatalf("second Up() error = %v", err)
 	}
 	assertAppliedVersionCount(t, db, 1, 1)
+	assertAppliedVersionCount(t, db, 2, 1)
 	status, err = runner.Status(ctx)
 	if err != nil {
 		t.Fatalf("Status() after Up error = %v", err)
 	}
-	assertSingleMigrationStatus(t, status, true)
+	assertMigrationStatus(t, status, true, true)
 
 	if _, err := runner.Down(ctx); err != nil {
 		t.Fatalf("Down() error = %v", err)
 	}
-	assertBusinessTablesAbsent(t, db)
+	assertInitialSchema(t, db)
+	assertTableExists(t, db, "chain_event_biz_cursors", false)
 	assertTableExists(t, db, "schema_migrations", true)
-	assertAppliedVersionCount(t, db, 1, 0)
+	assertAppliedVersionCount(t, db, 1, 1)
+	assertAppliedVersionCount(t, db, 2, 0)
 	status, err = runner.Status(ctx)
 	if err != nil {
 		t.Fatalf("Status() after Down error = %v", err)
 	}
-	assertSingleMigrationStatus(t, status, false)
+	assertMigrationStatus(t, status, true, false)
+
+	if _, err := runner.Down(ctx); err != nil {
+		t.Fatalf("second Down() error = %v", err)
+	}
+	assertBusinessTablesAbsent(t, db)
+	assertAppliedVersionCount(t, db, 1, 0)
 
 	if _, err := runner.Up(ctx); err != nil {
 		t.Fatalf("Up() after Down error = %v", err)
 	}
 	assertInitialSchema(t, db)
 	assertAppliedVersionCount(t, db, 1, 1)
+	assertAppliedVersionCount(t, db, 2, 1)
 }
 
 func TestMigrationFailureRollsBackDDLAndVersion(t *testing.T) {
@@ -136,15 +147,23 @@ func TestConcurrentMigrationUpAppliesOnce(t *testing.T) {
 
 	assertInitialSchema(t, db1)
 	assertAppliedVersionCount(t, db1, 1, 1)
+	assertAppliedVersionCount(t, db1, 2, 1)
 }
 
-func assertSingleMigrationStatus(t *testing.T, got []postgre.MigrationStatus, applied bool) {
+func assertMigrationStatus(t *testing.T, got []postgre.MigrationStatus, v1Applied, v2Applied bool) {
 	t.Helper()
-	if len(got) != 1 {
-		t.Fatalf("Status() returned %d migrations, want 1: %#v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("Status() returned %d migrations, want 2: %#v", len(got), got)
 	}
-	if got[0].Version != 1 || got[0].Name != "initial_schema" || got[0].Applied != applied {
-		t.Fatalf("Status()[0] = %#v, want version=1 name=initial_schema applied=%t", got[0], applied)
+	want := []struct {
+		version int64
+		name    string
+		applied bool
+	}{{1, "initial_schema", v1Applied}, {2, "event_biz_cursors", v2Applied}}
+	for i := range want {
+		if got[i].Version != want[i].version || got[i].Name != want[i].name || got[i].Applied != want[i].applied {
+			t.Fatalf("Status()[%d] = %#v, want version=%d name=%s applied=%t", i, got[i], want[i].version, want[i].name, want[i].applied)
+		}
 	}
 }
 

@@ -41,6 +41,7 @@ func ResetSchema(t testing.TB, db *gorm.DB) {
 	t.Helper()
 	const resetSQL = `
 DROP TABLE IF EXISTS migration_rollback_probe;
+DROP TABLE IF EXISTS chain_event_biz_cursors;
 DROP TABLE IF EXISTS chain_reorgs;
 DROP TABLE IF EXISTS chain_transfers;
 DROP TABLE IF EXISTS chain_transactions;

@@ -159,7 +159,7 @@ func TestInitialSchemaCatalogMatchesPDF(t *testing.T) {
 	cfg := testioc.InitConfig(t)
 	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
 	testioc.ResetSchema(t, db)
-	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
+	if _, err := testioc.InitMigrationRunner(t, db, initialMigrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestSchemaCatalogComparisonDetectsDrift(t *testing.T) {
 	cfg := testioc.InitConfig(t)
 	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
 	testioc.ResetSchema(t, db)
-	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
+	if _, err := testioc.InitMigrationRunner(t, db, initialMigrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)
 	}
 	if err := db.Exec("ALTER TABLE chain_raw_events ALTER COLUMN raw_log DROP NOT NULL").Error; err != nil {

@@ -25,6 +25,7 @@ func TestMigrateCommandUpStatusDownUp(t *testing.T) {
 
 	firstUp := runMigrateCommand(t, binary, "up")
 	assertLogLineContains(t, firstUp, "migration applied", "command=migrate", "direction=up", "migration_version=1", "migration_name=initial_schema")
+	assertLogLineContains(t, firstUp, "migration applied", "command=migrate", "direction=up", "migration_version=2", "migration_name=event_biz_cursors")
 
 	noOpUp := runMigrateCommand(t, binary, "up")
 	if strings.Contains(noOpUp, "migration applied") || strings.Contains(noOpUp, "migration_version") {
@@ -32,28 +33,27 @@ func TestMigrateCommandUpStatusDownUp(t *testing.T) {
 	}
 
 	status := runMigrateCommand(t, binary, "status")
-	if !strings.Contains(status, "000001") || !strings.Contains(status, "applied") {
-		t.Fatalf("status output = %q", status)
-	}
+	assertLogLineContains(t, status, "000001", "initial_schema", "applied")
+	assertLogLineContains(t, status, "000002", "event_biz_cursors", "applied")
 
 	down := runMigrateCommand(t, binary, "down")
-	assertLogLineContains(t, down, "migration rolled back", "command=migrate", "direction=down", "migration_version=1", "migration_name=initial_schema")
+	assertLogLineContains(t, down, "migration rolled back", "command=migrate", "direction=down", "migration_version=2", "migration_name=event_biz_cursors")
 
 	lastUp := runMigrateCommand(t, binary, "up")
-	assertLogLineContains(t, lastUp, "migration applied", "command=migrate", "direction=up", "migration_version=1", "migration_name=initial_schema")
+	assertLogLineContains(t, lastUp, "migration applied", "command=migrate", "direction=up", "migration_version=2", "migration_name=event_biz_cursors")
 
 	for _, output := range []string{firstUp, noOpUp, status, down, lastUp} {
 		assertOutputOmitsSecrets(t, output, cfg.Database.DSN)
 	}
 
 	var versionCount, tableCount int64
-	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 1").Scan(&versionCount).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version IN (1, 2)").Scan(&versionCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'chain_%'").Scan(&tableCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if versionCount != 1 || tableCount != 6 {
+	if versionCount != 2 || tableCount != 7 {
 		t.Fatalf("version count = %d, business tables = %d", versionCount, tableCount)
 	}
 }
@@ -357,14 +357,18 @@ func assertLogLineContains(t *testing.T, output, message string, fields ...strin
 		if !strings.Contains(line, message) {
 			continue
 		}
+		matches := true
 		for _, field := range fields {
 			if !strings.Contains(line, field) {
-				t.Fatalf("log line %q is missing %q", line, field)
+				matches = false
+				break
 			}
 		}
-		return
+		if matches {
+			return
+		}
 	}
-	t.Fatalf("output has no log line containing %q: %q", message, output)
+	t.Fatalf("output has no log line containing %q and fields %q: %q", message, fields, output)
 }
 
 func assertOutputOmitsSecrets(t *testing.T, output, dsn string) {
