@@ -13,6 +13,7 @@ type RawEvent struct {
 	ID              int64
 	ChainID         int64
 	BlockNumber     int64
+	BlockTime       int64
 	BlockHash       string
 	TxHash          string
 	TxIndex         *int

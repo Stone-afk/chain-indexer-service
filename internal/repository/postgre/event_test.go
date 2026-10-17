@@ -5,6 +5,9 @@ import (
 	"database/sql/driver"
 	"errors"
 	"reflect"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -193,5 +196,109 @@ func TestCommitTransfersPartialDuplicateKeepsOtherBatchItems(t *testing.T) {
 	}
 	if !reflect.DeepEqual(indices, []int64{0, 1}) {
 		t.Fatalf("missing expanded items: %v SQL=%v", indices, trace.statements)
+	}
+}
+
+func TestListRawEventsJoinsBlockTime(t *testing.T) {
+	trace := &chainSQL{}
+	_, err := NewEventDAO(chainTestDB(t, trace)).ListRawEvents(context.Background(), 7, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trace.statements) != 1 {
+		t.Fatalf("SQL=%v", trace.statements)
+	}
+	q := strings.ToLower(trace.statements[0])
+	q = strings.ReplaceAll(q, `"`, "")
+	q = regexp.MustCompile(`\s+`).ReplaceAllString(q, " ")
+	selectPart := q[:strings.Index(q, " from chain_raw_events")]
+	if !strings.Contains(selectPart, "chain_blocks.block_time as block_time") {
+		t.Fatalf("projection=%s", q)
+	}
+	for _, bad := range []string{" left join ", " left outer join ", " right join ", " right outer join ", " full join ", " full outer join ", " cross join ", " natural join ", " natural "} {
+		if strings.Contains(q, bad) {
+			t.Fatalf("non-inner join=%s", q)
+		}
+	}
+	joinStart := strings.Index(q, " join chain_blocks on ")
+	if joinStart < 0 {
+		t.Fatalf("not inner join: %s", q)
+	}
+	onEnd := strings.Index(q[joinStart:], " where ")
+	if onEnd < 0 {
+		t.Fatalf("missing where: %s", q)
+	}
+	on := q[joinStart+len(" join chain_blocks on ") : joinStart+onEnd]
+	predicates := strings.Split(on, " and ")
+	canonical := make([]string, 0, len(predicates))
+	for _, predicate := range predicates {
+		parts := strings.Split(predicate, " = ")
+		if len(parts) != 2 {
+			t.Fatalf("non-equality ON predicate=%s", predicate)
+		}
+		pair := []string{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])}
+		sort.Strings(pair)
+		canonical = append(canonical, strings.Join(pair, " = "))
+	}
+	sort.Strings(canonical)
+	wantPredicates := []string{"chain_blocks.block_hash = chain_raw_events.block_hash", "chain_blocks.chain_id = chain_raw_events.chain_id"}
+	if !reflect.DeepEqual(canonical, wantPredicates) {
+		t.Fatalf("on predicates=%v", canonical)
+	}
+	cursorMatch := regexp.MustCompile(`where chain_raw_events\.id > (\$[0-9]+)`).FindStringSubmatch(q)
+	if len(cursorMatch) != 2 {
+		t.Fatalf("cursor clause=%s", q)
+	}
+	cursorValue := int64(0)
+	{
+		ordinal, err := strconv.Atoi(strings.TrimPrefix(cursorMatch[1], "$"))
+		if err != nil || ordinal < 1 || len(trace.args) != 1 {
+			t.Fatalf("cursor placeholder=%s args=%#v", cursorMatch[1], trace.args)
+		}
+		var found bool
+		for _, arg := range trace.args[0] {
+			if arg.Ordinal == ordinal {
+				cursorValue, found = arg.Value.(int64)
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("cursor ordinal=%d args=%#v", ordinal, trace.args)
+		}
+	}
+	if cursorValue != 7 {
+		t.Fatalf("cursor=%d, want 7", cursorValue)
+	}
+	if !strings.Contains(q, "order by chain_raw_events.id asc") || !strings.Contains(q, "limit") {
+		t.Fatalf("pagination=%s", q)
+	}
+	limitMatch := regexp.MustCompile(`limit (\$[0-9]+|[0-9]+)`).FindStringSubmatch(q)
+	if len(limitMatch) != 2 {
+		t.Fatalf("missing limit value=%s", q)
+	}
+	limitValue := int64(0)
+	if strings.HasPrefix(limitMatch[1], "$") {
+		ordinal, err := strconv.Atoi(strings.TrimPrefix(limitMatch[1], "$"))
+		if err != nil || ordinal < 1 || ordinal > len(trace.args[0]) {
+			t.Fatalf("limit placeholder=%s args=%#v", limitMatch[1], trace.args)
+		}
+		var found bool
+		for _, arg := range trace.args[0] {
+			if arg.Ordinal == ordinal {
+				limitValue, found = arg.Value.(int64)
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("limit ordinal=%d args=%#v", ordinal, trace.args)
+		}
+	} else {
+		limitValue, _ = strconv.ParseInt(limitMatch[1], 10, 64)
+	}
+	if limitValue != 2 {
+		t.Fatalf("limit=%d, want 2", limitValue)
+	}
+	if strings.Contains(q, "parse_status") || strings.Contains(q, "chain_status") {
+		t.Fatalf("unexpected filter=%s", q)
 	}
 }

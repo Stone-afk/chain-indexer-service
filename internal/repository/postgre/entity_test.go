@@ -91,3 +91,17 @@ func TestRowModelsMapNumericJSONBAndNullableFields(t *testing.T) {
 		})
 	}
 }
+
+func TestChainRawEventBlockTimeProjectionIsReadOnly(t *testing.T) {
+	parsed, err := schema.Parse(&ChainRawEvent{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := parsed.FieldsByDBName["block_time"]
+	if field == nil {
+		t.Fatal("block_time is not mapped")
+	}
+	if field.Creatable || field.Updatable || field.Readable == false {
+		t.Fatalf("block_time permissions: creatable=%v updatable=%v readable=%v", field.Creatable, field.Updatable, field.Readable)
+	}
+}

@@ -22,6 +22,34 @@ type eventDAOFake struct {
 	biz, family string
 }
 
+func requiredInt64Field(t *testing.T, value any, name string) reflect.Value {
+	t.Helper()
+	v := reflect.ValueOf(value)
+	if !v.IsValid() || v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
+		t.Fatalf("%T must be a non-nil struct pointer", value)
+	}
+	f := v.Elem().FieldByName(name)
+	if !f.IsValid() {
+		t.Fatalf("%T missing required field %s", value, name)
+	}
+	if f.Kind() != reflect.Int64 {
+		t.Fatalf("%T.%s kind=%s, want int64", value, name, f.Kind())
+	}
+	return f
+}
+func setBlockTime(t *testing.T, value any, want int64) {
+	f := requiredInt64Field(t, value, "BlockTime")
+	if !f.CanSet() {
+		t.Fatalf("%T.BlockTime is not settable", value)
+	}
+	f.SetInt(want)
+}
+func requireBlockTime(t *testing.T, value any, want int64) {
+	if got := requiredInt64Field(t, value, "BlockTime").Int(); got != want {
+		t.Fatalf("%T.BlockTime=%d, want %d", value, got, want)
+	}
+}
+
 func (f *eventDAOFake) GetBizCursor(_ context.Context, _, _ string) (int64, error) {
 	f.calls++
 	return f.cursor, f.err
@@ -37,17 +65,19 @@ func (f *eventDAOFake) CommitTransfersAndAdvanceCursor(_ context.Context, biz, f
 	return f.err
 }
 
-func TestEventRepositoryMapsRawEvents(t *testing.T) {
+func TestEventRepositoryMapsRawEventBlockTime(t *testing.T) {
 	raw := xsql.JSONField(`{"a":1}`)
 	txIndex, topic0, topic1, topic2, topic3 := 3, "t0", "t1", "t2", "t3"
 	eventData, reorgID, revertedAt := "data", "reorg", int64(42)
-	f := &eventDAOFake{rows: []postgre.ChainRawEvent{{
+	row := postgre.ChainRawEvent{
 		ID: 9, ChainID: 1, BlockNumber: 2, BlockHash: "block", TxHash: "tx",
 		TxIndex: &txIndex, LogIndex: 4, ContractAddress: "contract",
 		Topic0: &topic0, Topic1: &topic1, Topic2: &topic2, Topic3: &topic3,
 		EventData: &eventData, RawLog: raw, ChainStatus: "REVERTED",
 		ReorgID: &reorgID, RevertedAt: &revertedAt,
-	}}}
+	}
+	setBlockTime(t, &row, 1234)
+	f := &eventDAOFake{rows: []postgre.ChainRawEvent{row}}
 	rows, err := NewEventRepository(f).ListRawEvents(context.Background(), 1, 2)
 	want := domain.RawEvent{
 		ID: 9, ChainID: 1, BlockNumber: 2, BlockHash: "block", TxHash: "tx",
@@ -56,7 +86,15 @@ func TestEventRepositoryMapsRawEvents(t *testing.T) {
 		EventData: &eventData, RawLog: []byte(raw), ChainStatus: "REVERTED",
 		ReorgID: &reorgID, RevertedAt: &revertedAt,
 	}
-	if err != nil || !reflect.DeepEqual(rows, []domain.RawEvent{want}) || f.listCursor != 1 || f.listLimit != 2 {
+	setBlockTime(t, &want, 1234)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows=%+v", rows)
+	}
+	requireBlockTime(t, &rows[0], 1234)
+	if !reflect.DeepEqual(rows, []domain.RawEvent{want}) || f.listCursor != 1 || f.listLimit != 2 {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
 	rows[0].RawLog[0] = 'x'

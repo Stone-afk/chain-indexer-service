@@ -61,6 +61,7 @@ type ChainRawEvent struct {
 	ID              int64          `gorm:"column:id"`
 	ChainID         int64          `gorm:"column:chain_id;primaryKey"`
 	BlockNumber     int64          `gorm:"column:block_number"`
+	BlockTime       int64          `gorm:"column:block_time;->"`
 	BlockHash       string         `gorm:"column:block_hash;primaryKey"`
 	TxHash          string         `gorm:"column:tx_hash"`
 	TxIndex         *int           `gorm:"column:tx_index"`

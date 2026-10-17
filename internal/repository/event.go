@@ -46,6 +46,7 @@ func (r *eventRepository) ListRawEvents(ctx context.Context, cursor int64, limit
 	for _, e := range entities {
 		result = append(result, domain.RawEvent{
 			ID: e.ID, ChainID: e.ChainID, BlockNumber: e.BlockNumber,
+			BlockTime: e.BlockTime,
 			BlockHash: e.BlockHash, TxHash: e.TxHash, TxIndex: e.TxIndex,
 			LogIndex: e.LogIndex, ContractAddress: e.ContractAddress,
 			Topic0: e.Topic0, Topic1: e.Topic1, Topic2: e.Topic2, Topic3: e.Topic3,

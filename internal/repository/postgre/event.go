@@ -30,7 +30,14 @@ func (dao *eventDAO) GetBizCursor(ctx context.Context, biz, chainFamily string) 
 func (dao *eventDAO) ListRawEvents(ctx context.Context, cursor int64, limit int) ([]ChainRawEvent, error) {
 	query := dao.db.WithContext(ctx)
 	rows := make([]ChainRawEvent, 0)
-	err := query.Where("id > ?", cursor).Order("id ASC").Limit(limit).Find(&rows).Error
+	err := query.
+		Model(&ChainRawEvent{}).
+		Select("chain_raw_events.*, chain_blocks.block_time AS block_time").
+		Joins("INNER JOIN chain_blocks ON chain_blocks.chain_id = chain_raw_events.chain_id AND chain_blocks.block_hash = chain_raw_events.block_hash").
+		Where("chain_raw_events.id > ?", cursor).
+		Order("chain_raw_events.id ASC").
+		Limit(limit).
+		Find(&rows).Error
 	return rows, err
 }
 
