@@ -14,7 +14,7 @@ type schemaMigrationIdentity struct {
 	Name    string
 }
 
-var requiredSchemaMigrations = []schemaMigrationIdentity{{Version: 1, Name: "initial_schema"}}
+var requiredSchemaMigrations = []schemaMigrationIdentity{{Version: 1, Name: "initial_schema"}, {Version: 2, Name: "event_biz_cursors"}}
 
 func Open(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard})
@@ -47,7 +47,7 @@ func Close(db *gorm.DB) error {
 }
 
 func CheckSchemaVersion(ctx context.Context, db *gorm.DB, required int64) error {
-	if required != int64(len(requiredSchemaMigrations)) {
+	if required < 1 || required > int64(len(requiredSchemaMigrations)) {
 		return fmt.Errorf("unsupported required schema version %d", required)
 	}
 	var tableExists bool
@@ -61,10 +61,10 @@ func CheckSchemaVersion(ctx context.Context, db *gorm.DB, required int64) error 
 	if err := db.WithContext(ctx).Raw("SELECT version, name FROM schema_migrations WHERE version <= ? ORDER BY version", required).Scan(&applied).Error; err != nil {
 		return fmt.Errorf("read schema migrations through version %d", required)
 	}
-	if len(applied) != len(requiredSchemaMigrations) {
+	if len(applied) != int(required) {
 		return fmt.Errorf("required schema migration history through version %d is incomplete", required)
 	}
-	for index, expected := range requiredSchemaMigrations {
+	for index, expected := range requiredSchemaMigrations[:required] {
 		if applied[index] != expected {
 			return fmt.Errorf("schema migration version %d identity mismatch", expected.Version)
 		}

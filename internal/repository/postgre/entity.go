@@ -2,8 +2,23 @@ package postgre
 
 import "github.com/Stone-afk/chain-indexer-service/pkg/xsql"
 
+// Export entity names for the repository mapping boundary.
+type ChainCheckpoint = chainCheckpointRow
+type ChainBlock = chainBlockRow
+type ChainTransaction = chainTransactionRow
+type ChainTransfer = chainTransferRow
+type ChainReorg = chainReorgRow
+
+type CanonicalBatch struct {
+	Block           ChainBlock
+	Transactions    []ChainTransaction
+	RawEvents       []ChainRawEvent
+	NativeTransfers []ChainTransfer
+	Checkpoint      ChainCheckpoint
+}
+
 type chainCheckpointRow struct {
-	ChainID             int64  `gorm:"column:chain_id;primaryKey"`
+	ChainID             int64  `gorm:"column:chain_id;primaryKey;autoIncrement:false"`
 	LastProcessedHeight int64  `gorm:"column:last_processed_height"`
 	LastProcessedHash   string `gorm:"column:last_processed_hash"`
 	CreatedAt           int64  `gorm:"column:created_at"`
