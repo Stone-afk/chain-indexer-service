@@ -104,6 +104,8 @@ func TestDecoderDecode(t *testing.T) {
 			{"missing indexed topic", []string{event.Topic0, paddedAddress}},
 			{"extra indexed topic", []string{event.Topic0, paddedAddress, word(42), word(43)}},
 			{"malformed indexed word", []string{event.Topic0, "0x01", word(42)}},
+			{"nonzero indexed address padding", []string{event.Topic0, "0x01" + strings.Repeat("00", 31), word(42)}},
+			{"non-hex indexed word", []string{event.Topic0, paddedAddress, "0x" + strings.Repeat("00", 31) + "gg"}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				_, err := decoder.Decode(event, tc.topics, "0x")

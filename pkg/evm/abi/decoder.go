@@ -91,3 +91,24 @@ func (d *Decoder) Decode(event ParsedEvent, topics []string, data string) (map[s
 	}
 	return out, nil
 }
+
+func transferWord(s string) ([]byte, bool) {
+	if len(s) != 66 || !strings.HasPrefix(s, "0x") {
+		return nil, false
+	}
+	b, err := hex.DecodeString(s[2:])
+	return b, err == nil
+}
+
+func transferAddress(s string) (string, bool) {
+	b, ok := transferWord(s)
+	if !ok {
+		return "", false
+	}
+	for _, v := range b[:12] {
+		if v != 0 {
+			return "", false
+		}
+	}
+	return "0x" + hex.EncodeToString(b[12:]), true
+}
