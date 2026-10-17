@@ -2,6 +2,13 @@ package domain
 
 import "encoding/json"
 
+// EventTransferResult is the deterministic decode result for one consumed event.
+// Empty Transfers still records that the event was consumed.
+type EventTransferResult struct {
+	RawEventID int64
+	Transfers  []Transfer
+}
+
 type RawEvent struct {
 	ID              int64
 	ChainID         int64

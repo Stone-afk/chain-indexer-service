@@ -19,11 +19,19 @@ func (r *eventRepository) GetBizCursor(ctx context.Context, biz, chainFamily str
 	return r.dao.GetBizCursor(ctx, biz, chainFamily)
 }
 
-func (r *eventRepository) AdvanceBizCursor(ctx context.Context, biz, chainFamily string, cursor int64) error {
+func (r *eventRepository) CommitTransfersAndAdvanceCursor(ctx context.Context, biz, chainFamily string, cursor int64, results []domain.EventTransferResult) error {
 	if biz == "" || chainFamily == "" || cursor < 0 {
 		return fmt.Errorf("invalid cursor arguments")
 	}
-	return r.dao.AdvanceBizCursor(ctx, biz, chainFamily, cursor)
+	rows := make([]postgre.EventTransferResult, 0, len(results))
+	for _, result := range results {
+		row := postgre.EventTransferResult{RawEventID: result.RawEventID}
+		for _, tr := range result.Transfers {
+			row.Transfers = append(row.Transfers, postgre.ChainTransfer{ID: tr.ID, ChainID: tr.ChainID, BlockNumber: tr.BlockNumber, BlockHash: tr.BlockHash, TxHash: tr.TxHash, TxIndex: tr.TxIndex, SourceType: tr.SourceType, SourceIndex: tr.SourceIndex, TransferType: tr.TransferType, TokenAddress: tr.TokenAddress, FromAddress: tr.FromAddress, ToAddress: tr.ToAddress, Amount: tr.Amount, TokenID: tr.TokenID, BatchIndex: tr.BatchIndex, ChainStatus: tr.ChainStatus, ReorgID: tr.ReorgID, RawData: entityJSON(tr.RawData), BlockTime: tr.BlockTime, CreatedAt: tr.CreatedAt, RevertedAt: tr.RevertedAt})
+		}
+		rows = append(rows, row)
+	}
+	return r.dao.CommitTransfersAndAdvanceCursor(ctx, biz, chainFamily, cursor, rows)
 }
 
 func (r *eventRepository) ListRawEvents(ctx context.Context, cursor int64, limit int) ([]domain.RawEvent, error) {

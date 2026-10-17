@@ -9,6 +9,11 @@ type ChainTransaction = chainTransactionRow
 type ChainTransfer = chainTransferRow
 type ChainReorg = chainReorgRow
 
+type EventTransferResult struct {
+	RawEventID int64
+	Transfers  []ChainTransfer
+}
+
 type CanonicalBatch struct {
 	Block           ChainBlock
 	Transactions    []ChainTransaction
