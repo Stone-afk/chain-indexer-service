@@ -109,6 +109,20 @@ func TestDecoderDecode(t *testing.T) {
 		}
 	})
 
+	for _, tc := range []struct {
+		name, declaration, data string
+	}{
+		{"trailing data word", "event Value(uint256 amount)", "0x" + fmtWord(1) + fmtWord(2)},
+		{"dynamic offset points into head", "event Values(uint256[] ids)", "0x" + fmtWord(0)},
+		{"non-indexed address padding", "event Owner(address owner)", "0x01" + strings.Repeat("00", 30) + "01"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := parse(tc.declaration)
+			_, err := decoder.Decode(event, []string{event.Topic0}, tc.data)
+			checkDecodeError(t, err)
+		})
+	}
+
 	t.Run("inputs unchanged and values use approved Go types", func(t *testing.T) {
 		event := parse("event Values(address indexed owner, uint256 count, bool enabled, bytes payload, uint256[] ids)")
 		topics := []string{event.Topic0, paddedAddress}
