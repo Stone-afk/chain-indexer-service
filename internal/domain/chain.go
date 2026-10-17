@@ -37,6 +37,9 @@ type Transaction struct {
 
 type Receipt struct {
 	TxHash            string
+	BlockNumber       int64
+	BlockHash         string
+	TxIndex           int
 	Status            int
 	GasUsed           int64
 	EffectiveGasPrice string

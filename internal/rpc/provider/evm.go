@@ -126,6 +126,9 @@ func (c *client) ReceiptByTransactionHash(ctx context.Context, hash string) (dom
 	}
 	var w struct {
 		TransactionHash   string
+		BlockNumber       hexutil.Uint64
+		BlockHash         string
+		TransactionIndex  hexutil.Uint64
 		Status, GasUsed   hexutil.Uint64
 		EffectiveGasPrice *hexutil.Big
 		ContractAddress   *string
@@ -134,7 +137,7 @@ func (c *client) ReceiptByTransactionHash(ctx context.Context, hash string) (dom
 	if err := json.Unmarshal(raw, &w); err != nil {
 		return domain.Receipt{}, safeError("decode receipt", err)
 	}
-	r := domain.Receipt{TxHash: w.TransactionHash, Status: int(w.Status), GasUsed: int64(w.GasUsed), EffectiveGasPrice: decimal(w.EffectiveGasPrice), ContractAddress: w.ContractAddress, RawReceipt: raw}
+	r := domain.Receipt{TxHash: w.TransactionHash, BlockNumber: int64(w.BlockNumber), BlockHash: w.BlockHash, TxIndex: int(w.TransactionIndex), Status: int(w.Status), GasUsed: int64(w.GasUsed), EffectiveGasPrice: decimal(w.EffectiveGasPrice), ContractAddress: w.ContractAddress, RawReceipt: raw}
 	for _, rawLog := range w.Logs {
 		var l struct {
 			BlockNumber, TransactionIndex, LogIndex   hexutil.Uint64
