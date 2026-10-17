@@ -3,6 +3,7 @@ package provider_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -202,11 +203,7 @@ func TestWSHeadsAndLifecycle(t *testing.T) {
 					if err == nil {
 						t.Fatal("disconnect error missing")
 					}
-					for _, secret := range []string{endpoint, "api-secret", "query-secret"} {
-						if strings.Contains(err.Error(), secret) {
-							t.Fatalf("runtime endpoint leaked: %v", err)
-						}
-					}
+					assertErrorChainRedacted(t, err, endpoint, "api-secret", "query-secret")
 				case <-ctx.Done():
 					t.Fatal("subscription error not exposed")
 				}
@@ -243,11 +240,36 @@ func TestProviderErrorsRedactEndpoint(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected endpoint error")
 			}
-			for _, secret := range []string{endpoint, "api-secret", "query-secret"} {
-				if strings.Contains(err.Error(), secret) {
-					t.Fatalf("endpoint leaked: %v", err)
-				}
+			assertErrorChainRedacted(t, err, endpoint, "api-secret", "query-secret")
+		})
+	}
+}
+
+func assertErrorChainRedacted(t *testing.T, err error, secrets ...string) {
+	t.Helper()
+	for depth := 0; err != nil; depth, err = depth+1, errors.Unwrap(err) {
+		for _, secret := range secrets {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error chain depth %d exposes secret %q: %v", depth, secret, err)
 			}
+		}
+	}
+}
+
+func TestProviderConstructorErrorChainRedactsSecrets(t *testing.T) {
+	for _, scheme := range []string{"http", "ws"} {
+		t.Run(scheme, func(t *testing.T) {
+			endpoint := scheme + "://user:password@example.invalid/%api-secret?key=query-secret"
+			var err error
+			if scheme == "http" {
+				_, _, err = provider.NewHTTPReader(context.Background(), endpoint)
+			} else {
+				_, _, err = provider.NewWSSubscriber(context.Background(), endpoint)
+			}
+			if err == nil {
+				t.Fatal("expected constructor error")
+			}
+			assertErrorChainRedacted(t, err, endpoint, "user", "password", "api-secret", "query-secret")
 		})
 	}
 }
