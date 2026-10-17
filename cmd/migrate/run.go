@@ -8,7 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/config"
-	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
+	"github.com/Stone-afk/chain-indexer-service/internal/pkg/postgre"
 )
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
@@ -40,13 +40,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 		fmt.Fprintf(stderr, "load migration configuration: %v\n", err)
 		return 1
 	}
-	database, err := postgre.Open(ctx, databaseConfig.DSN)
+	database, err := postgre.Open(databaseConfig.DSN)
 	if err != nil {
 		fmt.Fprintf(stderr, "open migration database: %v\n", err)
 		return 1
 	}
 
-	runner, operationErr := postgre.NewMigrationRunner(database.GORM(), *migrationsDir)
+	runner, operationErr := postgre.NewMigrationRunner(database, *migrationsDir)
 	if operationErr == nil {
 		logger := slog.New(slog.NewTextHandler(stdout, nil)).With("command", "migrate", "direction", direction)
 		switch direction {
@@ -76,7 +76,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 			}
 		}
 	}
-	closeErr := database.Close()
+	closeErr := postgre.Close(database)
 	if operationErr != nil {
 		fmt.Fprintf(stderr, "migrate %s: %v\n", direction, operationErr)
 		return 1

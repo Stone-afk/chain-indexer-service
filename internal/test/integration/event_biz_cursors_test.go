@@ -62,7 +62,7 @@ func TestEventBizCursorSchemaContract(t *testing.T) {
 
 func TestEventBizCursorUpgradeAndRoundTrip(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, initialMigrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestEventBizCursorIDPagination(t *testing.T) {
 func eventCursorDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatal(err)

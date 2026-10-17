@@ -19,7 +19,7 @@ import (
 
 func TestMigrateCommandUpStatusDownUp(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	binary := buildBinary(t, "./cmd/migrate")
 
@@ -178,7 +178,7 @@ func TestChainIndexerRejectsInvalidConfigBeforeDatabase(t *testing.T) {
 
 func TestChainIndexerRejectsMissingSchema(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	const applicationName = "chain-indexer-e2e-missing-schema"
 	configPath := writeConfigWithDSN(t, cfg.Database.DSN, cfg.Database.DSN+" application_name="+applicationName)
@@ -201,7 +201,7 @@ func TestChainIndexerRejectsMissingSchema(t *testing.T) {
 
 func TestChainIndexerRejectsBogusHigherSchemaVersion(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	createSchemaMigrationHistory(t, db, 2, "bogus")
 	binary := buildBinary(t, "./cmd/chain-indexer")
@@ -254,7 +254,7 @@ func TestChainIndexerDatabaseFailureRedactsSecrets(t *testing.T) {
 
 func TestChainIndexerLifecycle(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatal(err)

@@ -9,34 +9,23 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type Database struct {
-	gorm *gorm.DB
-}
-
 type schemaMigrationIdentity struct {
 	Version int64
 	Name    string
 }
 
-var requiredSchemaMigrations = []schemaMigrationIdentity{
-	{Version: 1, Name: "initial_schema"},
-}
+var requiredSchemaMigrations = []schemaMigrationIdentity{{Version: 1, Name: "initial_schema"}}
 
-func Open(ctx context.Context, dsn string) (*Database, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		DisableAutomaticPing: true,
-		Logger:               logger.Discard,
-	})
+func Open(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard})
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL database")
 	}
-	return &Database{gorm: db.WithContext(ctx)}, nil
+	return db, nil
 }
 
-func (d *Database) GORM() *gorm.DB { return d.gorm }
-
-func (d *Database) Ping(ctx context.Context) error {
-	sqlDB, err := d.gorm.DB()
+func Ping(ctx context.Context, db *gorm.DB) error {
+	sqlDB, err := db.DB()
 	if err != nil {
 		return fmt.Errorf("get PostgreSQL connection pool")
 	}
@@ -46,8 +35,8 @@ func (d *Database) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (d *Database) Close() error {
-	sqlDB, err := d.gorm.DB()
+func Close(db *gorm.DB) error {
+	sqlDB, err := db.DB()
 	if err != nil {
 		return fmt.Errorf("get PostgreSQL connection pool")
 	}

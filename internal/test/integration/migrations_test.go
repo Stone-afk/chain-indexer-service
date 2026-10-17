@@ -8,14 +8,14 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
+	"github.com/Stone-afk/chain-indexer-service/internal/pkg/postgre"
 	testioc "github.com/Stone-afk/chain-indexer-service/internal/test/ioc"
 	"gorm.io/gorm"
 )
 
 func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	runner := testioc.InitMigrationRunner(t, db, migrationDir(t))
 	ctx := context.Background()
@@ -74,7 +74,7 @@ func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 
 func TestMigrationFailureRollsBackDDLAndVersion(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	dir := t.TempDir()
 	writeMigrationFile(t, dir, "000001_broken.up.sql", "CREATE TABLE migration_rollback_probe (id BIGINT PRIMARY KEY);\nTHIS IS NOT VALID SQL;")
@@ -91,7 +91,7 @@ func TestMigrationFailureRollsBackDDLAndVersion(t *testing.T) {
 
 func TestMigrationRejectsUnknownAppliedVersion(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	runner := testioc.InitMigrationRunner(t, db, migrationDir(t))
 	ctx := context.Background()
@@ -118,8 +118,8 @@ func TestMigrationRejectsUnknownAppliedVersion(t *testing.T) {
 
 func TestConcurrentMigrationUpAppliesOnce(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db1 := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
-	db2 := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db1 := testioc.InitDB(t, context.Background(), cfg.Database)
+	db2 := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db1)
 	runner1 := testioc.InitMigrationRunner(t, db1, migrationDir(t))
 	runner2 := testioc.InitMigrationRunner(t, db2, migrationDir(t))

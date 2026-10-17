@@ -157,7 +157,7 @@ var expectedBusinessKeys = []string{
 
 func TestInitialSchemaCatalogMatchesPDF(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, initialMigrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)
@@ -170,7 +170,7 @@ func TestInitialSchemaCatalogMatchesPDF(t *testing.T) {
 
 func TestSchemaCatalogComparisonDetectsDrift(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, initialMigrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)

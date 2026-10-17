@@ -7,22 +7,22 @@ import (
 	"testing"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/config"
-	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
+	"github.com/Stone-afk/chain-indexer-service/internal/pkg/postgre"
 	"gorm.io/gorm"
 )
 
-func InitPostgreSQL(t testing.TB, ctx context.Context, cfg config.DatabaseConfig) *postgre.Database {
+func InitDB(t testing.TB, ctx context.Context, cfg config.DatabaseConfig) *gorm.DB {
 	t.Helper()
-	database, err := postgre.Open(ctx, cfg.DSN)
+	database, err := postgre.Open(cfg.DSN)
 	if err != nil {
 		t.Fatalf("open PostgreSQL e2e database: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := database.Close(); err != nil {
+		if err := postgre.Close(database); err != nil {
 			t.Errorf("close PostgreSQL e2e database: %v", err)
 		}
 	})
-	if err := database.Ping(ctx); err != nil {
+	if err := postgre.Ping(ctx, database); err != nil {
 		t.Fatalf("ping PostgreSQL e2e database: %v", err)
 	}
 	return database

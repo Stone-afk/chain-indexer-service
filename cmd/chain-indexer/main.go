@@ -38,7 +38,7 @@ func main() {
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	database, err := ioc.InitPostgreSQL(ctx, serviceConfig.Database)
+	_, cleanupDB, err := ioc.InitDB(ctx, serviceConfig.Database)
 	if err != nil {
 		stop()
 		fmt.Fprintf(os.Stderr, "start service: %v\n", err)
@@ -50,7 +50,7 @@ func main() {
 	<-ctx.Done()
 	logger.Info("service stopping")
 	stop()
-	if err := database.Close(); err != nil {
+	if err := cleanupDB(); err != nil {
 		fmt.Fprintf(os.Stderr, "stop service: %v\n", err)
 		os.Exit(1)
 	}

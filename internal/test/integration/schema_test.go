@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
+	productionioc "github.com/Stone-afk/chain-indexer-service/cmd/chain-indexer/ioc"
+	"github.com/Stone-afk/chain-indexer-service/internal/pkg/postgre"
 	testioc "github.com/Stone-afk/chain-indexer-service/internal/test/ioc"
 	"gorm.io/gorm"
 )
@@ -25,12 +26,12 @@ type expectedIndex struct {
 
 func TestDatabaseLifecycle(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	database := testioc.InitPostgreSQL(t, context.Background(), cfg.Database)
-	sqlDB, err := database.GORM().DB()
+	database := testioc.InitDB(t, context.Background(), cfg.Database)
+	sqlDB, err := database.DB()
 	if err != nil {
 		t.Fatalf("GORM().DB() error = %v", err)
 	}
-	if err := database.Close(); err != nil {
+	if err := postgre.Close(database); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
 	if err := sqlDB.PingContext(context.Background()); err == nil {
@@ -38,9 +39,29 @@ func TestDatabaseLifecycle(t *testing.T) {
 	}
 }
 
+func TestDatabaseHandleOutlivesStartupContext(t *testing.T) {
+	cfg := testioc.InitConfig(t)
+	setupDB := testioc.InitDB(t, context.Background(), cfg.Database)
+	testioc.ResetSchema(t, setupDB)
+	if _, err := testioc.InitMigrationRunner(t, setupDB, initialMigrationDir(t)).Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	database, cleanup, err := productionioc.InitDB(ctx, cfg.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cleanup() })
+	cancel()
+	var one int
+	if err := database.Raw("SELECT 1").Scan(&one).Error; err != nil || one != 1 {
+		t.Fatalf("query after startup context cancellation: one=%d err=%v", one, err)
+	}
+}
+
 func TestSchemaVersionRequiresAppliedMigration(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	ctx := context.Background()
 	if err := postgre.CheckSchemaVersion(ctx, db, 1); err == nil {
@@ -72,7 +93,7 @@ func TestSchemaVersionRequiresExactMigrationIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := testioc.InitConfig(t)
-			db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+			db := testioc.InitDB(t, context.Background(), cfg.Database)
 			testioc.ResetSchema(t, db)
 			createSchemaMigrationHistory(t, db, test.version, test.migration)
 			err := postgre.CheckSchemaVersion(context.Background(), db, 1)
@@ -88,7 +109,7 @@ func TestSchemaVersionRequiresExactMigrationIdentity(t *testing.T) {
 
 func TestSchemaRoundTripAndConstraints(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)
@@ -134,7 +155,7 @@ func TestSchemaRoundTripAndConstraints(t *testing.T) {
 
 func TestSchemaMigrationsAppliedAtIsExplicit(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)
@@ -158,7 +179,7 @@ func TestSchemaMigrationsAppliedAtIsExplicit(t *testing.T) {
 
 func TestInitialSchemaIndexesMatchPDF(t *testing.T) {
 	cfg := testioc.InitConfig(t)
-	db := testioc.InitPostgreSQL(t, context.Background(), cfg.Database).GORM()
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
 	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatalf("Up() error = %v", err)

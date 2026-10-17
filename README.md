@@ -28,9 +28,9 @@ go run ./cmd/migrate down --config ./config.yaml
 
 默认从 `script/postgre` 读取成对 SQL；可用 `--migrations-dir` 显式指定目录。服务启动不会自动执行 migration。
 
-`internal/repository/postgre` 是 PostgreSQL/GORM DAO 实现层，负责连接、migration runner、schema gate 和数据库模型映射。P1 不在这里提前定义通用 repository 接口或业务 CRUD；`script/postgre` 中的 SQL 是 schema 的唯一权威，不使用 `AutoMigrate`。
+`internal/pkg/postgre` 负责 PostgreSQL 连接生命周期、migration runner 和 schema gate；`internal/repository/postgre` 仅保留数据库模型与映射。P1 不提前定义通用 repository 接口或业务 CRUD；`script/postgre` 中的 SQL 是 schema 的唯一权威，不使用 `AutoMigrate`。
 
-`internal/pkg` 仅按需承载跨业务模块复用、职责稳定且内聚的项目内部公共能力。至少两个真实生产调用方是必要条件，还必须证明能力不属于 `config`、`domain` 或 `repository/postgre` 等单一模块；它不是通用兜底目录。P1 当前没有符合条件的能力，不创建空包、预留包装或迁移现有模块。
+`internal/pkg` 仅按需承载跨业务模块复用、职责稳定且内聚的项目内部公共能力。至少两个真实生产调用方是必要条件，还必须证明能力不属于 `config`、`domain` 或 `repository/postgre` 等单一模块；它不是通用兜底目录。`internal/pkg/postgre` 同时由 service 与 migrate 两个生产入口复用，因此符合这一边界。
 
 ## 启动服务
 
@@ -40,7 +40,7 @@ go run ./cmd/chain-indexer --config ./config.yaml
 
 `chain-indexer` 没有 `serve` 或 `migrate` 子命令。P1 会校验完整七链配置、连接并 ping PostgreSQL、检查 schema version 1，然后持有真实数据库连接池直至收到 SIGINT/SIGTERM；它不声称 listener、worker 或链索引已经运行。
 
-服务由 `cmd/chain-indexer/main.go` 直接启动，并继续采用逐依赖的显式 IoC：`main.go` 按具体依赖调用 `cmd/chain-indexer/ioc` 中对应的 `InitX` 函数并显式管理生命周期；独立的 `cmd/migrate` 入口保持不变。P1 目前只有 `InitPostgreSQL`，不存在汇总所有依赖的 `Dependencies`、`Application` 或 `Container`。
+服务由 `cmd/chain-indexer/main.go` 直接启动，并继续采用逐依赖的显式 IoC：`main.go` 按具体依赖调用 `cmd/chain-indexer/ioc` 中对应的 `InitX` 函数并显式管理生命周期；独立的 `cmd/migrate` 入口保持不变。P1 目前只有 `InitDB`，不存在汇总所有依赖的 `Dependencies`、`Application` 或 `Container`。
 
 ## 测试
 
