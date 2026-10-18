@@ -92,6 +92,16 @@ func TestRowModelsMapNumericJSONBAndNullableFields(t *testing.T) {
 	}
 }
 
+func TestChainTransactionRowExcludesTxTypeColumn(t *testing.T) {
+	parsed, err := schema.Parse(&ChainTransaction{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parsed.FieldsByDBName["tx_type"]; ok {
+		t.Fatal("chain transaction must not map tx_type")
+	}
+}
+
 func TestChainRawEventBlockTimeProjectionIsReadOnly(t *testing.T) {
 	parsed, err := schema.Parse(&ChainRawEvent{}, &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {

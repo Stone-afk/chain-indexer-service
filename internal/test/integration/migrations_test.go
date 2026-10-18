@@ -4,6 +4,8 @@ package integration
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -24,7 +26,7 @@ func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status() before bootstrap error = %v", err)
 	}
-	assertMigrationStatus(t, status, false, false)
+	assertMigrationStatus(t, status, false, false, false)
 
 	if _, err := runner.Up(ctx); err != nil {
 		t.Fatalf("Up() error = %v", err)
@@ -32,34 +34,46 @@ func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 	assertInitialSchema(t, db)
 	assertAppliedVersionCount(t, db, 1, 1)
 	assertAppliedVersionCount(t, db, 2, 1)
+	assertAppliedVersionCount(t, db, 3, 1)
 
 	if _, err := runner.Up(ctx); err != nil {
 		t.Fatalf("second Up() error = %v", err)
 	}
 	assertAppliedVersionCount(t, db, 1, 1)
 	assertAppliedVersionCount(t, db, 2, 1)
+	assertAppliedVersionCount(t, db, 3, 1)
 	status, err = runner.Status(ctx)
 	if err != nil {
 		t.Fatalf("Status() after Up error = %v", err)
 	}
-	assertMigrationStatus(t, status, true, true)
+	assertMigrationStatus(t, status, true, true, true)
 
 	if _, err := runner.Down(ctx); err != nil {
 		t.Fatalf("Down() error = %v", err)
 	}
 	assertInitialSchema(t, db)
-	assertTableExists(t, db, "chain_event_biz_cursors", false)
+	assertTableExists(t, db, "chain_event_biz_cursors", true)
 	assertTableExists(t, db, "schema_migrations", true)
 	assertAppliedVersionCount(t, db, 1, 1)
-	assertAppliedVersionCount(t, db, 2, 0)
+	assertAppliedVersionCount(t, db, 2, 1)
+	assertAppliedVersionCount(t, db, 3, 0)
 	status, err = runner.Status(ctx)
 	if err != nil {
 		t.Fatalf("Status() after Down error = %v", err)
 	}
-	assertMigrationStatus(t, status, true, false)
+	assertMigrationStatus(t, status, true, true, false)
 
 	if _, err := runner.Down(ctx); err != nil {
 		t.Fatalf("second Down() error = %v", err)
+	}
+	assertInitialSchema(t, db)
+	assertTableExists(t, db, "chain_event_biz_cursors", false)
+	assertAppliedVersionCount(t, db, 1, 1)
+	assertAppliedVersionCount(t, db, 2, 0)
+	assertAppliedVersionCount(t, db, 3, 0)
+
+	if _, err := runner.Down(ctx); err != nil {
+		t.Fatalf("third Down() error = %v", err)
 	}
 	assertBusinessTablesAbsent(t, db)
 	assertAppliedVersionCount(t, db, 1, 0)
@@ -70,6 +84,94 @@ func TestMigrationUpStatusDownUpRoundTrip(t *testing.T) {
 	assertInitialSchema(t, db)
 	assertAppliedVersionCount(t, db, 1, 1)
 	assertAppliedVersionCount(t, db, 2, 1)
+	assertAppliedVersionCount(t, db, 3, 1)
+}
+
+func TestMigrationV3DownPreservesTransactionAndClearsRemovedValue(t *testing.T) {
+	cfg := testioc.InitConfig(t)
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
+	testioc.ResetSchema(t, db)
+	dir := t.TempDir()
+	for _, name := range []string{"000001_initial_schema.up.sql", "000001_initial_schema.down.sql", "000002_event_biz_cursors.up.sql", "000002_event_biz_cursors.down.sql"} {
+		contents, err := os.ReadFile(filepath.Join(migrationDir(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeMigrationFile(t, dir, name, string(contents))
+	}
+	runner := testioc.InitMigrationRunner(t, db, dir)
+	ctx := context.Background()
+	if _, err := runner.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	const insert = `INSERT INTO chain_transactions
+(chain_id, block_number, block_hash, tx_hash, tx_index, from_address, nonce, value, tx_type, execution_status, block_time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	args := []any{1, 100, hashOf('a'), hashOf('b'), 0, addressOf('c'), 1, 7, 9, "SUCCESS", 1000}
+	if err := db.Exec(insert, args...).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000003_drop_chain_transactions_tx_type.up.sql", "000003_drop_chain_transactions_tx_type.down.sql"} {
+		contents, err := os.ReadFile(filepath.Join(migrationDir(t), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeMigrationFile(t, dir, name, string(contents))
+	}
+	runner = testioc.InitMigrationRunner(t, db, dir)
+	if _, err := runner.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertTransactionSentinel(t, db, false, true)
+	if _, err := runner.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var column struct{ DataType, Nullable string }
+	if err := db.Raw("SELECT data_type, is_nullable AS nullable FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='chain_transactions' AND column_name='tx_type'").Scan(&column).Error; err != nil {
+		t.Fatal(err)
+	}
+	if column.DataType != "smallint" || column.Nullable != "YES" {
+		t.Fatalf("tx_type column = %#v", column)
+	}
+	assertTransactionSentinel(t, db, true, true)
+	if _, err := runner.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertTransactionSentinel(t, db, false, true)
+}
+
+func assertTransactionSentinel(t *testing.T, db *gorm.DB, wantNullable bool, wantPreserved bool) {
+	t.Helper()
+	if wantNullable {
+		var row struct {
+			Value, TxType   *int64
+			ExecutionStatus string
+		}
+		if err := db.Raw("SELECT value::bigint, tx_type, execution_status FROM chain_transactions WHERE chain_id=? AND block_hash=? AND tx_hash=?", 1, hashOf('a'), hashOf('b')).Scan(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.Value == nil || *row.Value != 7 || row.TxType != nil || row.ExecutionStatus != "SUCCESS" {
+			t.Fatalf("transaction row = %#v", row)
+		}
+		return
+	}
+	var columnExists bool
+	if err := db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='chain_transactions' AND column_name='tx_type')").Scan(&columnExists).Error; err != nil {
+		t.Fatal(err)
+	}
+	if columnExists {
+		t.Fatal("tx_type column still exists")
+	}
+	var row struct {
+		Value           *int64
+		ExecutionStatus string
+	}
+	if err := db.Raw("SELECT value::bigint, execution_status FROM chain_transactions WHERE chain_id=? AND block_hash=? AND tx_hash=?", 1, hashOf('a'), hashOf('b')).Scan(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !wantPreserved || row.Value == nil || *row.Value != 7 || row.ExecutionStatus != "SUCCESS" {
+		t.Fatalf("transaction row = %#v", row)
+	}
 }
 
 func TestMigrationFailureRollsBackDDLAndVersion(t *testing.T) {
@@ -148,18 +250,19 @@ func TestConcurrentMigrationUpAppliesOnce(t *testing.T) {
 	assertInitialSchema(t, db1)
 	assertAppliedVersionCount(t, db1, 1, 1)
 	assertAppliedVersionCount(t, db1, 2, 1)
+	assertAppliedVersionCount(t, db1, 3, 1)
 }
 
-func assertMigrationStatus(t *testing.T, got []postgre.MigrationStatus, v1Applied, v2Applied bool) {
+func assertMigrationStatus(t *testing.T, got []postgre.MigrationStatus, v1Applied, v2Applied, v3Applied bool) {
 	t.Helper()
-	if len(got) != 2 {
-		t.Fatalf("Status() returned %d migrations, want 2: %#v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("Status() returned %d migrations, want 3: %#v", len(got), got)
 	}
 	want := []struct {
 		version int64
 		name    string
 		applied bool
-	}{{1, "initial_schema", v1Applied}, {2, "event_biz_cursors", v2Applied}}
+	}{{1, "initial_schema", v1Applied}, {2, "event_biz_cursors", v2Applied}, {3, "drop_chain_transactions_tx_type", v3Applied}}
 	for i := range want {
 		if got[i].Version != want[i].version || got[i].Name != want[i].name || got[i].Applied != want[i].applied {
 			t.Fatalf("Status()[%d] = %#v, want version=%d name=%s applied=%t", i, got[i], want[i].version, want[i].name, want[i].applied)

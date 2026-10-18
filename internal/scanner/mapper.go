@@ -29,7 +29,7 @@ func mapCanonicalBatch(chainID int64, block domain.Block, receipts []domain.Rece
 	batch := domain.CanonicalBatch{
 		Block: domain.StoredBlock{
 			ChainID: chainID, BlockNumber: h.Number, BlockHash: h.Hash, ParentHash: h.ParentHash,
-			BlockTime: h.Timestamp, Status: "CANONICAL", Finality: "CONFIRMED",
+			BlockTime: h.Timestamp, Status: string(domain.BlockStatusCanonical), Finality: string(domain.FinalityConfirmed),
 			TransactionCount: len(block.Transactions), StateRoot: &block.StateRoot,
 			TransactionsRoot: &block.TransactionsRoot, ReceiptsRoot: &block.ReceiptsRoot,
 			GasLimit:      mapperString(strconv.FormatInt(block.GasLimit, 10)),
@@ -80,19 +80,18 @@ func mapCanonicalBatch(chainID int64, block domain.Block, receipts []domain.Rece
 			return domain.CanonicalBatch{}, fmt.Errorf("invalid transaction fee")
 		}
 		feeString := fee.String()
-		status := "FAILED"
+		status := string(domain.ExecutionStatusFailed)
 		if receipt.Status == 1 {
-			status = "SUCCESS"
+			status = string(domain.ExecutionStatusSuccess)
 		}
-		txType := int16(tx.Type)
 		stored := domain.StoredTransaction{
 			ChainID: chainID, BlockNumber: h.Number, BlockHash: h.Hash, TxHash: tx.Hash,
 			TxIndex: tx.Index, FromAddress: tx.From, ToAddress: tx.To, Nonce: tx.Nonce,
-			Value: tx.Value, Input: &tx.Input, TxType: &txType,
+			Value: tx.Value, Input: &tx.Input,
 			GasLimit: mapperString(strconv.FormatInt(tx.GasLimit, 10)),
 			GasUsed:  mapperString(strconv.FormatInt(receipt.GasUsed, 10)), GasPrice: mapperOptionalString(tx.GasPrice),
 			TransactionFee: &feeString, ExecutionStatus: status, ContractAddress: receipt.ContractAddress,
-			ChainStatus: "ACTIVE", RawTransaction: tx.RawTransaction, RawReceipt: receipt.RawReceipt,
+			ChainStatus: string(domain.ChainStatusActive), RawTransaction: tx.RawTransaction, RawReceipt: receipt.RawReceipt,
 			BlockTime: h.Timestamp, CreatedAt: createdAt,
 		}
 		if receipt.EffectiveGasPrice != "" {
@@ -110,7 +109,7 @@ func mapCanonicalBatch(chainID int64, block domain.Block, receipts []domain.Rece
 			event := domain.RawEvent{
 				ChainID: chainID, BlockNumber: h.Number, BlockHash: h.Hash, TxHash: tx.Hash,
 				TxIndex: &tx.Index, LogIndex: log.Index, ContractAddress: log.Address,
-				EventData: &log.Data, RawLog: log.RawLog, ChainStatus: "ACTIVE",
+				EventData: &log.Data, RawLog: log.RawLog, ChainStatus: string(domain.ChainStatusActive),
 			}
 			topics := []*(*string){&event.Topic0, &event.Topic1, &event.Topic2, &event.Topic3}
 			for i := 0; i < len(log.Topics) && i < len(topics); i++ {
@@ -128,9 +127,9 @@ func mapCanonicalBatch(chainID int64, block domain.Block, receipts []domain.Rece
 			}
 			batch.NativeTransfers = append(batch.NativeTransfers, domain.Transfer{
 				ChainID: chainID, BlockNumber: h.Number, BlockHash: h.Hash, TxHash: tx.Hash,
-				TxIndex: &tx.Index, SourceType: "TRANSACTION_VALUE", SourceIndex: "tx-value",
-				TransferType: "NATIVE", FromAddress: tx.From, ToAddress: *to, Amount: &tx.Value,
-				ChainStatus: "ACTIVE", BlockTime: h.Timestamp, CreatedAt: createdAt,
+				TxIndex: &tx.Index, SourceType: string(domain.TransferSourceTransactionValue), SourceIndex: string(domain.TransferSourceIndexTransactionValue),
+				TransferType: string(domain.TransferTypeNative), FromAddress: tx.From, ToAddress: *to, Amount: &tx.Value,
+				ChainStatus: string(domain.ChainStatusActive), BlockTime: h.Timestamp, CreatedAt: createdAt,
 			})
 		}
 	}

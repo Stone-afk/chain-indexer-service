@@ -27,7 +27,14 @@ go.work.sum
 
 # env file
 .env
+.idea/
 
 # Editor/IDE
 # .idea/
 # .vscode/
+docs/
+.superpowers/
+.cursor/
+.codex/
+.claude/
+/config/config.local.yaml

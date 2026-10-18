@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
 	"github.com/Stone-afk/chain-indexer-service/pkg/xsql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"reflect"
 	"testing"
 )
@@ -70,9 +72,8 @@ func TestCheckpointAndCanonicalBlockMapping(t *testing.T) {
 func TestCanonicalBatchNativeTransferMapping(t *testing.T) {
 	amount, to, input, price := "999999999999999999999999999999", "created", "0xab", "3"
 	txIndex := 2
-	typ := int16(2)
 	raw := []byte(`{"ok":true}`)
-	batch := domain.CanonicalBatch{Block: domain.StoredBlock{ChainID: 1, BlockNumber: 8, BlockHash: "b", RawBlock: raw, RawReceipts: raw, GasUsed: &price}, Transactions: []domain.StoredTransaction{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", TxIndex: 2, FromAddress: "from", ToAddress: nil, Value: amount, Input: &input, TxType: &typ, ExecutionStatus: "SUCCESS", ContractAddress: &to, TransactionFee: &price, RawTransaction: raw, RawReceipt: raw, BlockTime: 55}}, RawEvents: []domain.RawEvent{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", LogIndex: 4, RawLog: raw, TxIndex: &txIndex}}, NativeTransfers: []domain.Transfer{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", TxIndex: &txIndex, SourceType: "TRANSACTION_VALUE", SourceIndex: "tx-value", TransferType: "NATIVE", FromAddress: "from", ToAddress: to, Amount: &amount, BatchIndex: 0, ChainStatus: "ACTIVE", RawData: raw, BlockTime: 55}}, Checkpoint: domain.Checkpoint{ChainID: 1, LastProcessedHeight: 8, LastProcessedHash: "b"}}
+	batch := domain.CanonicalBatch{Block: domain.StoredBlock{ChainID: 1, BlockNumber: 8, BlockHash: "b", RawBlock: raw, RawReceipts: raw, GasUsed: &price}, Transactions: []domain.StoredTransaction{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", TxIndex: 2, FromAddress: "from", ToAddress: nil, Value: amount, Input: &input, ExecutionStatus: "SUCCESS", ContractAddress: &to, TransactionFee: &price, RawTransaction: raw, RawReceipt: raw, BlockTime: 55}}, RawEvents: []domain.RawEvent{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", LogIndex: 4, RawLog: raw, TxIndex: &txIndex}}, NativeTransfers: []domain.Transfer{{ChainID: 1, BlockNumber: 8, BlockHash: "b", TxHash: "tx", TxIndex: &txIndex, SourceType: "TRANSACTION_VALUE", SourceIndex: "tx-value", TransferType: "NATIVE", FromAddress: "from", ToAddress: to, Amount: &amount, BatchIndex: 0, ChainStatus: "ACTIVE", RawData: raw, BlockTime: 55}}, Checkpoint: domain.Checkpoint{ChainID: 1, LastProcessedHeight: 8, LastProcessedHash: "b"}}
 	f := &chainDAOFake{}
 	r := NewChainRepository(f)
 	if err := r.SaveCanonicalBatch(context.Background(), batch); err != nil {
@@ -83,7 +84,7 @@ func TestCanonicalBatchNativeTransferMapping(t *testing.T) {
 		t.Fatalf("batch=%+v", got)
 	}
 	tx := got.Transactions[0]
-	if tx.Value != amount || tx.ToAddress != nil || *tx.ContractAddress != "created" || *tx.TransactionFee != "3" || *tx.TxType != 2 || string(*tx.RawReceipt) != string(raw) {
+	if tx.Value != amount || tx.ToAddress != nil || *tx.ContractAddress != "created" || *tx.TransactionFee != "3" || string(*tx.RawReceipt) != string(raw) {
 		t.Fatalf("tx=%+v", tx)
 	}
 	ev := got.RawEvents[0]
@@ -101,6 +102,42 @@ func TestCanonicalBatchNativeTransferMapping(t *testing.T) {
 	f.err = errors.New("batch failed")
 	if err := r.SaveCanonicalBatch(context.Background(), batch); !errors.Is(err, f.err) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCanonicalBatchMapsCanonicalHeightConstraint(t *testing.T) {
+	constraintErr := &pgconn.PgError{Code: "23505", ConstraintName: "uq_chain_blocks_canonical_height"}
+	f := &chainDAOFake{err: fmt.Errorf("insert canonical block: %w", constraintErr)}
+
+	err := NewChainRepository(f).SaveCanonicalBatch(context.Background(), domain.CanonicalBatch{})
+	if !errors.Is(err, ErrCanonicalHashConflict) {
+		t.Fatalf("err=%v, want ErrCanonicalHashConflict", err)
+	}
+	if !errors.Is(err, constraintErr) {
+		t.Fatalf("err=%v, want original PostgreSQL cause", err)
+	}
+}
+
+func TestCanonicalBatchPreservesOtherWriteErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "other constraint", err: &pgconn.PgError{Code: "23505", ConstraintName: "chain_blocks_pkey"}},
+		{name: "other PostgreSQL code", err: &pgconn.PgError{Code: "23503", ConstraintName: "uq_chain_blocks_canonical_height"}},
+		{name: "non PostgreSQL error", err: errors.New("write failed")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &chainDAOFake{err: tt.err}
+			err := NewChainRepository(f).SaveCanonicalBatch(context.Background(), domain.CanonicalBatch{})
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("err=%v, want original cause %v", err, tt.err)
+			}
+			if errors.Is(err, ErrCanonicalHashConflict) {
+				t.Fatalf("err=%v unexpectedly maps to ErrCanonicalHashConflict", err)
+			}
+		})
 	}
 }
 

@@ -11,18 +11,30 @@ import (
 	"github.com/Stone-afk/chain-indexer-service/internal/pkg/postgre"
 )
 
+// migrationDirection 表示迁移命令支持的操作。
+type migrationDirection string
+
+const (
+	// migrationDirectionUp 执行待应用迁移。
+	migrationDirectionUp migrationDirection = "up"
+	// migrationDirectionDown 回滚最近一次迁移。
+	migrationDirectionDown migrationDirection = "down"
+	// migrationDirectionStatus 查看迁移状态。
+	migrationDirectionStatus migrationDirection = "status"
+)
+
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv func(string) (string, bool)) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: migrate <up|down|status> --config <path> [--migrations-dir <path>]")
 		return 2
 	}
-	direction := args[0]
-	if direction != "up" && direction != "down" && direction != "status" {
+	direction := migrationDirection(args[0])
+	if direction != migrationDirectionUp && direction != migrationDirectionDown && direction != migrationDirectionStatus {
 		fmt.Fprintf(stderr, "unknown migration direction %q\n", direction)
 		return 2
 	}
 
-	flags := flag.NewFlagSet("migrate "+direction, flag.ContinueOnError)
+	flags := flag.NewFlagSet("migrate "+string(direction), flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "configuration file")
 	migrationsDir := flags.String("migrations-dir", "script/postgre", "migration directory")
@@ -48,21 +60,21 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 
 	runner, operationErr := postgre.NewMigrationRunner(database, *migrationsDir)
 	if operationErr == nil {
-		logger := slog.New(slog.NewTextHandler(stdout, nil)).With("command", "migrate", "direction", direction)
+		logger := slog.New(slog.NewTextHandler(stdout, nil)).With("command", "migrate", "direction", string(direction))
 		switch direction {
-		case "up":
+		case migrationDirectionUp:
 			var executed []postgre.Migration
 			executed, operationErr = runner.Up(ctx)
 			for _, migration := range executed {
 				logger.Info("migration applied", "migration_version", migration.Version, "migration_name", migration.Name)
 			}
-		case "down":
+		case migrationDirectionDown:
 			var executed *postgre.Migration
 			executed, operationErr = runner.Down(ctx)
 			if operationErr == nil && executed != nil {
 				logger.Info("migration rolled back", "migration_version", executed.Version, "migration_name", executed.Name)
 			}
-		case "status":
+		case migrationDirectionStatus:
 			var statuses []postgre.MigrationStatus
 			statuses, operationErr = runner.Status(ctx)
 			if operationErr == nil {

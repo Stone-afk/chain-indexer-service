@@ -43,7 +43,7 @@ func TestDatabaseHandleOutlivesStartupContext(t *testing.T) {
 	cfg := testioc.InitConfig(t)
 	setupDB := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, setupDB)
-	if _, err := testioc.InitMigrationRunner(t, setupDB, initialMigrationDir(t)).Up(context.Background()); err != nil {
+	if _, err := testioc.InitMigrationRunner(t, setupDB, migrationDir(t)).Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,8 +73,8 @@ func TestSchemaVersionRequiresAppliedMigration(t *testing.T) {
 	if err := postgre.CheckSchemaVersion(ctx, db, 1); err != nil {
 		t.Fatalf("CheckSchemaVersion() error = %v", err)
 	}
-	if err := postgre.CheckSchemaVersion(ctx, db, 2); err == nil {
-		t.Fatal("CheckSchemaVersion() succeeded below required version")
+	if err := postgre.CheckSchemaVersion(ctx, db, 2); err != nil {
+		t.Fatalf("CheckSchemaVersion() error for complete V3 history = %v", err)
 	}
 }
 
@@ -102,6 +102,48 @@ func TestSchemaVersionRequiresExactMigrationIdentity(t *testing.T) {
 			}
 			if !test.wantSuccess && err == nil {
 				t.Fatal("CheckSchemaVersion() accepted invalid migration history")
+			}
+		})
+	}
+}
+
+func TestSchemaV3RequiresExactMigrationIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name, v3Name string
+		history      []struct {
+			version int64
+			name    string
+		}
+		wantSuccess bool
+	}{
+		{name: "v2 history is insufficient", history: []struct {
+			version int64
+			name    string
+		}{{1, "initial_schema"}, {2, "event_biz_cursors"}}},
+		{name: "v3 identity is required", history: []struct {
+			version int64
+			name    string
+		}{{1, "initial_schema"}, {2, "event_biz_cursors"}, {3, "drop_chain_transactions_tx_type"}}, wantSuccess: true},
+		{name: "v3 name must match", history: []struct {
+			version int64
+			name    string
+		}{{1, "initial_schema"}, {2, "event_biz_cursors"}, {3, "wrong_name"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := testioc.InitConfig(t)
+			db := testioc.InitDB(t, context.Background(), cfg.Database)
+			testioc.ResetSchema(t, db)
+			if err := db.Exec(`CREATE TABLE schema_migrations (version BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at BIGINT NOT NULL)`).Error; err != nil {
+				t.Fatal(err)
+			}
+			for _, migration := range test.history {
+				if err := db.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`, migration.version, migration.name, int64(1)).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := postgre.CheckSchemaVersion(context.Background(), db, 3)
+			if (err == nil) != test.wantSuccess {
+				t.Fatalf("CheckSchemaVersion() error = %v, wantSuccess=%t", err, test.wantSuccess)
 			}
 		})
 	}

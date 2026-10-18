@@ -70,7 +70,8 @@ func TestEventBizCursorUpgradeAndRoundTrip(t *testing.T) {
 	insertRawEvent(t, db, 1, 'a', 0)
 	insertRawEvent(t, db, 2, 'b', 1)
 	before := rawEventSnapshots(t, db)
-	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
+	v2MigrationDir := eventBizCursorMigrationDir(t)
+	if _, err := testioc.InitMigrationRunner(t, db, v2MigrationDir).Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if after := rawEventSnapshots(t, db); !reflect.DeepEqual(after, before) {
@@ -94,7 +95,7 @@ func TestEventBizCursorUpgradeAndRoundTrip(t *testing.T) {
 	if err := db.Exec(`INSERT INTO chain_raw_events (chain_id,block_number,block_hash,tx_hash,log_index,contract_address,raw_log) VALUES (?,?,?,?,?,?,?)`, 1, 9, hashOf('a'), hashOf('z'), 0, addressOf('z'), `{}`).Error; err == nil {
 		t.Fatal("duplicate natural identity succeeded")
 	}
-	runner := testioc.InitMigrationRunner(t, db, migrationDir(t))
+	runner := testioc.InitMigrationRunner(t, db, v2MigrationDir)
 	if _, err := runner.Down(context.Background()); err != nil {
 		t.Fatal(err)
 	}

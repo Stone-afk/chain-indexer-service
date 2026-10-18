@@ -107,7 +107,6 @@ type chainTransactionRow struct {
 	Input             *string         `gorm:"column:input"`
 	MethodID          *string         `gorm:"column:method_id"`
 	MethodName        *string         `gorm:"column:method_name"`
-	TxType            *int16          `gorm:"column:tx_type"`
 	GasLimit          *string         `gorm:"column:gas_limit;type:numeric(78,0)"`
 	GasUsed           *string         `gorm:"column:gas_used;type:numeric(78,0)"`
 	GasPrice          *string         `gorm:"column:gas_price;type:numeric(78,0)"`

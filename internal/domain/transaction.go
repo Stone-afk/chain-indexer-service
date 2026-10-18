@@ -15,7 +15,6 @@ type StoredTransaction struct {
 	Input             *string
 	MethodID          *string
 	MethodName        *string
-	TxType            *int16
 	GasLimit          *string
 	GasUsed           *string
 	GasPrice          *string

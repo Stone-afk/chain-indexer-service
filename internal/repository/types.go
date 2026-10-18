@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 )
+
+var ErrCanonicalHashConflict = errors.New("canonical block hash conflict")
 
 type EventRepository interface {
 	GetBizCursor(ctx context.Context, biz, chainFamily string) (int64, error)

@@ -53,18 +53,19 @@ func (r *schemaRows) Next(dst []driver.Value) error {
 	return nil
 }
 
-func TestSchemaV2RequiresCompleteMigrationIdentity(t *testing.T) {
+func TestSchemaV3RequiresCompleteMigrationIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		exists  bool
 		history [][]driver.Value
 		wantErr bool
 	}{
-		{"V2", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "event_biz_cursors"}}, false},
-		{"V1 only", true, [][]driver.Value{{int64(1), "initial_schema"}}, true},
+		{"V3", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "event_biz_cursors"}, {int64(3), "drop_chain_transactions_tx_type"}}, false},
+		{"V2 only", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "event_biz_cursors"}}, true},
 		{"missing V1", true, [][]driver.Value{{int64(2), "event_biz_cursors"}}, true},
-		{"wrong V2 identity", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "wrong"}}, true},
-		{"wrong V1 identity", true, [][]driver.Value{{int64(1), "wrong"}, {int64(2), "event_biz_cursors"}}, true},
+		{"wrong V3 identity", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "event_biz_cursors"}, {int64(3), "wrong"}}, true},
+		{"wrong V2 identity", true, [][]driver.Value{{int64(1), "initial_schema"}, {int64(2), "wrong"}, {int64(3), "drop_chain_transactions_tx_type"}}, true},
+		{"wrong V1 identity", true, [][]driver.Value{{int64(1), "wrong"}, {int64(2), "event_biz_cursors"}, {int64(3), "drop_chain_transactions_tx_type"}}, true},
 		{"missing table", false, nil, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,7 +75,7 @@ func TestSchemaV2RequiresCompleteMigrationIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = CheckSchemaVersion(context.Background(), db, 2)
+			err = CheckSchemaVersion(context.Background(), db, 3)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err=%v wantErr=%v", err, tc.wantErr)
 			}

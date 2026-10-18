@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 	"reflect"
 	"testing"
@@ -27,7 +28,7 @@ func TestMapperCompleteCanonicalBatch(t *testing.T) {
 	if tx.ChainID != 1 || tx.BlockNumber != 4 || tx.BlockHash != "hash-4" || tx.TxHash != "tx-4" || tx.TxIndex != 0 || tx.FromAddress != "sender" || tx.ToAddress == nil || *tx.ToAddress != "recipient" || tx.Nonce != 4 || tx.Value != "10" || tx.ExecutionStatus != "SUCCESS" || tx.ChainStatus != "ACTIVE" || tx.BlockTime != 104 || tx.CreatedAt != 999 {
 		t.Fatalf("tx %+v", tx)
 	}
-	if tx.TransactionFee == nil || *tx.TransactionFee != "189000" || tx.EffectiveGasPrice == nil || *tx.EffectiveGasPrice != "9" || tx.GasUsed == nil || *tx.GasUsed != "21000" || tx.GasPrice == nil || *tx.GasPrice != "11" || tx.GasLimit == nil || *tx.GasLimit != "22000" || tx.Input == nil || *tx.Input != "0x12345678abcd" || tx.MethodID == nil || *tx.MethodID != "0x12345678" || tx.TxType == nil || *tx.TxType != 2 || !reflect.DeepEqual(tx.RawTransaction, b.Transactions[0].RawTransaction) || !reflect.DeepEqual(tx.RawReceipt, rs[0].RawReceipt) {
+	if tx.TransactionFee == nil || *tx.TransactionFee != "189000" || tx.EffectiveGasPrice == nil || *tx.EffectiveGasPrice != "9" || tx.GasUsed == nil || *tx.GasUsed != "21000" || tx.GasPrice == nil || *tx.GasPrice != "11" || tx.GasLimit == nil || *tx.GasLimit != "22000" || tx.Input == nil || *tx.Input != "0x12345678abcd" || tx.MethodID == nil || *tx.MethodID != "0x12345678" || !reflect.DeepEqual(tx.RawTransaction, b.Transactions[0].RawTransaction) || !reflect.DeepEqual(tx.RawReceipt, rs[0].RawReceipt) {
 		t.Fatalf("tx payload %+v", tx)
 	}
 	e := got.RawEvents[0]
@@ -40,6 +41,28 @@ func TestMapperCompleteCanonicalBatch(t *testing.T) {
 	}
 	after, _ := json.Marshal([]any{b, rs})
 	require(t, !(string(before) != string(after)), "mapper mutated input")
+}
+
+func TestMapperKeepsOneFactRowForEveryEnvelopeTypeAndExcludesStoredTxType(t *testing.T) {
+	for txType := 0; txType <= 4; txType++ {
+		t.Run(fmt.Sprintf("type-%d", txType), func(t *testing.T) {
+			b, rs := blockFixture(4)
+			b.Transactions[0].Type = txType
+			got, err := mapCanonicalBatch(1, b, rs, 999)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Transactions) != 1 {
+				t.Fatalf("transaction facts = %d, want 1", len(got.Transactions))
+			}
+			if got.Transactions[0].TxHash != "tx-4" || got.Transactions[0].BlockNumber != 4 {
+				t.Fatalf("transaction fact = %+v", got.Transactions[0])
+			}
+		})
+	}
+	if _, ok := reflect.TypeOf(domain.StoredTransaction{}).FieldByName("TxType"); ok {
+		t.Fatal("domain.StoredTransaction must not have TxType")
+	}
 }
 func TestMapperReceiptIdentityRejectsWholeBatch(t *testing.T) {
 	for _, name := range []string{"missing", "extra", "duplicate", "tx hash", "log block number", "log block hash", "log tx hash", "log tx index"} {

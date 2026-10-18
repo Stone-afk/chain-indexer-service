@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	transactionBiz = "transaction"
-	evmChainFamily = "evm"
+	// transactionBiz 是交易转账 worker 的业务游标名称。
+	transactionBiz string = "transaction"
+	// evmChainFamily 是 EVM 链族的业务游标隔离键。
+	evmChainFamily string = "evm"
 )
 
 type Worker struct {

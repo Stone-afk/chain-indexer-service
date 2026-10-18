@@ -5,49 +5,49 @@ chains:
   ethereum:
     enabled: true
     chainId: 1
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 19000000
+    httpUrl: "https://mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 12
   bsc:
-    enabled: false
+    enabled: true
     chainId: 56
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 35000000
+    httpUrl: "https://bsc-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://bsc-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 15
   polygon:
-    enabled: false
+    enabled: true
     chainId: 137
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 50000000
+    httpUrl: "https://polygon-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://polygon-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 100
   arbitrum:
-    enabled: false
+    enabled: true
     chainId: 42161
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 100000000
+    httpUrl: "https://arbitrum-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://arbitrum-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 20
   optimism:
-    enabled: false
+    enabled: true
     chainId: 10
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 120000000
+    httpUrl: "https://optimism-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://optimism-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 20
   base:
-    enabled: false
+    enabled: true
     chainId: 8453
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 10000000
+    httpUrl: "https://base-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://base-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 20
   avalanche:
-    enabled: false
+    enabled: true
     chainId: 43114
-    startBlock: 0
-    httpUrl: "http://127.0.0.1:8545"
-    wsUrl: "ws://127.0.0.1:8546"
+    startBlock: 30000000
+    httpUrl: "https://avalanche-mainnet.infura.io/v3/633d4b74e8c8484cb4805634475b4684"
+    wsUrl: "wss://avalanche-mainnet.infura.io/ws/v3/633d4b74e8c8484cb4805634475b4684"
     confirmBlocks: 15

@@ -11,3 +11,5 @@ func InitEventDAO(db *gorm.DB) postgre.EventDAO { return postgre.NewEventDAO(db)
 func InitEventRepository(dao postgre.EventDAO) repository.EventRepository {
 	return repository.NewEventRepository(dao)
 }
+
+func InitEvent(db *gorm.DB) repository.EventRepository { return InitEventRepository(InitEventDAO(db)) }

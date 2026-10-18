@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Stone-afk/chain-indexer-service/internal/domain"
+	"time"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"time"
 )
 
 type chainDAO struct{ db *gorm.DB }
@@ -22,7 +24,7 @@ func (d *chainDAO) GetCheckpoint(ctx context.Context, chainID int64) (ChainCheck
 }
 func (d *chainDAO) GetCanonicalBlock(ctx context.Context, chainID, height int64) (ChainBlock, bool, error) {
 	var row ChainBlock
-	err := d.db.WithContext(ctx).Where("chain_id = ? AND block_number = ? AND status = ?", chainID, height, "CANONICAL").Take(&row).Error
+	err := d.db.WithContext(ctx).Where("chain_id = ? AND block_number = ? AND status = ?", chainID, height, string(domain.BlockStatusCanonical)).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ChainBlock{}, false, nil
 	}
@@ -74,14 +76,14 @@ func (d *chainDAO) SaveCanonicalBatch(ctx context.Context, b CanonicalBatch) err
 		}
 		// Restore already-consumed token results as well as Native rows, without
 		// inserting token transfers or touching their IDs and business contents.
-		if err := tx.Model(&ChainTransfer{}).Where("chain_id = ? AND block_hash = ? AND chain_status = ?", b.Block.ChainID, b.Block.BlockHash, "REVERTED").Updates(map[string]any{"chain_status": "ACTIVE", "reorg_id": gorm.Expr("NULL"), "reverted_at": gorm.Expr("NULL")}).Error; err != nil {
+		if err := tx.Model(&ChainTransfer{}).Where("chain_id = ? AND block_hash = ? AND chain_status = ?", b.Block.ChainID, b.Block.BlockHash, string(domain.ChainStatusReverted)).Updates(map[string]any{"chain_status": string(domain.ChainStatusActive), "reorg_id": gorm.Expr("NULL"), "reverted_at": gorm.Expr("NULL")}).Error; err != nil {
 			return err
 		}
 		var stored ChainBlock
 		if err := tx.Select("status").Where("chain_id = ? AND block_hash = ?", b.Block.ChainID, b.Block.BlockHash).Take(&stored).Error; err != nil {
 			return err
 		}
-		if stored.Status != "CANONICAL" {
+		if stored.Status != string(domain.BlockStatusCanonical) {
 			return fmt.Errorf("persisted block is not canonical")
 		}
 		return advanceCanonicalCheckpoint(tx, b.Checkpoint)
@@ -91,11 +93,11 @@ func (d *chainDAO) SaveCanonicalBatch(ctx context.Context, b CanonicalBatch) err
 func canonicalConflict(table string, keys ...string) clause.OnConflict {
 	conflict := conflictColumns(keys...)
 	conflict.DoNothing = false
-	status, invalid := "chain_status", "REVERTED"
-	updates := map[string]any{"chain_status": "ACTIVE", "reorg_id": gorm.Expr("NULL"), "reverted_at": gorm.Expr("NULL")}
+	status, invalid := "chain_status", string(domain.ChainStatusReverted)
+	updates := map[string]any{"chain_status": string(domain.ChainStatusActive), "reorg_id": gorm.Expr("NULL"), "reverted_at": gorm.Expr("NULL")}
 	if table == "chain_blocks" {
-		status, invalid = "status", "ORPHANED"
-		updates = map[string]any{"status": "CANONICAL", "finality": "CONFIRMED", "reorg_id": gorm.Expr("NULL"), "orphaned_at": gorm.Expr("NULL")}
+		status, invalid = "status", string(domain.BlockStatusOrphaned)
+		updates = map[string]any{"status": string(domain.BlockStatusCanonical), "finality": string(domain.FinalityConfirmed), "reorg_id": gorm.Expr("NULL"), "orphaned_at": gorm.Expr("NULL")}
 	}
 	conflict.DoUpdates = clause.Assignments(updates)
 	// All identifiers and states are fixed internal schema names, never input.
@@ -134,7 +136,7 @@ func (d *chainDAO) ApplyReorg(ctx context.Context, reorg ChainReorg, checkpoint 
 			if err := tx.Select("status").Where("reorg_id = ?", reorg.ReorgID).Take(&existing).Error; err != nil {
 				return err
 			}
-			if existing.Status != "COMPLETED" {
+			if existing.Status != string(domain.ReorgStatusCompleted) {
 				return fmt.Errorf("reorg record is not completed")
 			}
 			return nil
@@ -143,15 +145,16 @@ func (d *chainDAO) ApplyReorg(ctx context.Context, reorg ChainReorg, checkpoint 
 		// Match the worker's global raw-event ID lock order before invalidation.
 		const forkRange = "chain_id = ? AND block_number > ? AND block_number <= ?"
 		var events []ChainRawEvent
+		// TODO 这里 的 update lock 没有任何意义
 		if err := tx.Select("id").Where(forkRange, reorg.ChainID, reorg.AncestorHeight, reorg.OldHeadHeight).Order("id ASC").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&events).Error; err != nil {
 			return err
 		}
 		now := time.Now().Unix()
-		if err := tx.Model(&ChainBlock{}).Where(forkRange, reorg.ChainID, reorg.AncestorHeight, reorg.OldHeadHeight).Where("status = ?", "CANONICAL").Updates(map[string]any{"status": "ORPHANED", "reorg_id": reorg.ReorgID, "orphaned_at": now}).Error; err != nil {
+		if err := tx.Model(&ChainBlock{}).Where(forkRange, reorg.ChainID, reorg.AncestorHeight, reorg.OldHeadHeight).Where("status = ?", string(domain.BlockStatusCanonical)).Updates(map[string]any{"status": string(domain.BlockStatusOrphaned), "reorg_id": reorg.ReorgID, "orphaned_at": now}).Error; err != nil {
 			return err
 		}
 		for _, model := range []any{&ChainTransaction{}, &ChainRawEvent{}, &ChainTransfer{}} {
-			if err := tx.Model(model).Where(forkRange, reorg.ChainID, reorg.AncestorHeight, reorg.OldHeadHeight).Where("chain_status = ?", "ACTIVE").Updates(map[string]any{"chain_status": "REVERTED", "reorg_id": reorg.ReorgID, "reverted_at": now}).Error; err != nil {
+			if err := tx.Model(model).Where(forkRange, reorg.ChainID, reorg.AncestorHeight, reorg.OldHeadHeight).Where("chain_status = ?", string(domain.ChainStatusActive)).Updates(map[string]any{"chain_status": string(domain.ChainStatusReverted), "reorg_id": reorg.ReorgID, "reverted_at": now}).Error; err != nil {
 				return err
 			}
 		}

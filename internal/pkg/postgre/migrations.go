@@ -18,6 +18,15 @@ var migrationFilenamePattern = regexp.MustCompile(`^([0-9]{6})_([A-Za-z0-9][A-Za
 
 const migrationAdvisoryLockKey int64 = 0x4348494e44584d47
 
+type migrationFileDirection string
+
+const (
+	// migrationFileDirectionUp 表示迁移文件的正向变更。
+	migrationFileDirectionUp migrationFileDirection = "up"
+	// migrationFileDirectionDown 表示迁移文件的回滚变更。
+	migrationFileDirectionDown migrationFileDirection = "down"
+)
+
 const bootstrapSchemaMigrationsSQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version BIGINT PRIMARY KEY,
@@ -87,14 +96,14 @@ func DiscoverMigrations(dir string) ([]Migration, error) {
 		}
 
 		path := filepath.Join(dir, entry.Name())
-		switch matches[3] {
-		case "up":
+		switch migrationFileDirection(matches[3]) {
+		case migrationFileDirectionUp:
 			if pair.hasUp {
 				return nil, fmt.Errorf("duplicate up migration for version %06d", version)
 			}
 			pair.migration.UpPath = path
 			pair.hasUp = true
-		case "down":
+		case migrationFileDirectionDown:
 			if pair.hasDown {
 				return nil, fmt.Errorf("duplicate down migration for version %06d", version)
 			}

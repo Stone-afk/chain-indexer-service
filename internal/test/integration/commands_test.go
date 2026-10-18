@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"os"
@@ -26,6 +25,7 @@ func TestMigrateCommandUpStatusDownUp(t *testing.T) {
 	firstUp := runMigrateCommand(t, binary, "up")
 	assertLogLineContains(t, firstUp, "migration applied", "command=migrate", "direction=up", "migration_version=1", "migration_name=initial_schema")
 	assertLogLineContains(t, firstUp, "migration applied", "command=migrate", "direction=up", "migration_version=2", "migration_name=event_biz_cursors")
+	assertLogLineContains(t, firstUp, "migration applied", "command=migrate", "direction=up", "migration_version=3", "migration_name=drop_chain_transactions_tx_type")
 
 	noOpUp := runMigrateCommand(t, binary, "up")
 	if strings.Contains(noOpUp, "migration applied") || strings.Contains(noOpUp, "migration_version") {
@@ -35,25 +35,26 @@ func TestMigrateCommandUpStatusDownUp(t *testing.T) {
 	status := runMigrateCommand(t, binary, "status")
 	assertLogLineContains(t, status, "000001", "initial_schema", "applied")
 	assertLogLineContains(t, status, "000002", "event_biz_cursors", "applied")
+	assertLogLineContains(t, status, "000003", "drop_chain_transactions_tx_type", "applied")
 
 	down := runMigrateCommand(t, binary, "down")
-	assertLogLineContains(t, down, "migration rolled back", "command=migrate", "direction=down", "migration_version=2", "migration_name=event_biz_cursors")
+	assertLogLineContains(t, down, "migration rolled back", "command=migrate", "direction=down", "migration_version=3", "migration_name=drop_chain_transactions_tx_type")
 
 	lastUp := runMigrateCommand(t, binary, "up")
-	assertLogLineContains(t, lastUp, "migration applied", "command=migrate", "direction=up", "migration_version=2", "migration_name=event_biz_cursors")
+	assertLogLineContains(t, lastUp, "migration applied", "command=migrate", "direction=up", "migration_version=3", "migration_name=drop_chain_transactions_tx_type")
 
 	for _, output := range []string{firstUp, noOpUp, status, down, lastUp} {
 		assertOutputOmitsSecrets(t, output, cfg.Database.DSN)
 	}
 
 	var versionCount, tableCount int64
-	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version IN (1, 2)").Scan(&versionCount).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version IN (1, 2, 3)").Scan(&versionCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'chain_%'").Scan(&tableCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if versionCount != 2 || tableCount != 7 {
+	if versionCount != 3 || tableCount != 7 {
 		t.Fatalf("version count = %d, business tables = %d", versionCount, tableCount)
 	}
 }
@@ -253,6 +254,7 @@ func TestChainIndexerDatabaseFailureRedactsSecrets(t *testing.T) {
 }
 
 func TestChainIndexerLifecycle(t *testing.T) {
+	f := testioc.InitRPCFixture(t)
 	cfg := testioc.InitConfig(t)
 	db := testioc.InitDB(t, context.Background(), cfg.Database)
 	testioc.ResetSchema(t, db)
@@ -261,72 +263,16 @@ func TestChainIndexerLifecycle(t *testing.T) {
 	}
 
 	const applicationName = "chain-indexer-e2e-lifecycle"
-	configPath := writeConfigWithDSN(t, cfg.Database.DSN, cfg.Database.DSN+" application_name="+applicationName)
-	binary := buildBinary(t, "./cmd/chain-indexer")
-	command := exec.Command(binary, "--config", configPath)
-	command.Dir = repositoryRoot(t)
-	command.Env = commandEnvironment()
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-
-	ready := make(chan struct{})
-	doneReading := make(chan struct{})
-	var output strings.Builder
-	go func() {
-		defer close(doneReading)
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			output.WriteString(line)
-			output.WriteByte('\n')
-			if strings.Contains(line, "service ready") {
-				select {
-				case <-ready:
-				default:
-					close(ready)
-				}
-			}
-		}
-	}()
-
-	select {
-	case <-ready:
-	case <-time.After(10 * time.Second):
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		t.Fatalf("service did not become ready; stdout=%q stderr=%q", output.String(), stderr.String())
-	}
+	serviceDB := cfg.Database
+	serviceDB.DSN += " application_name=" + applicationName
+	process := runRuntime(t, f, serviceDB.DSN)
 	if countApplicationConnections(t, db, applicationName) == 0 {
-		_ = command.Process.Kill()
-		_ = command.Wait()
 		t.Fatal("no live service database connection")
 	}
-	if err := command.Process.Signal(os.Interrupt); err != nil {
-		t.Fatal(err)
-	}
-	wait := make(chan error, 1)
-	go func() { wait <- command.Wait() }()
-	select {
-	case err := <-wait:
-		if err != nil {
-			t.Fatalf("service exit: %v, stderr=%q", err, stderr.String())
-		}
-	case <-time.After(10 * time.Second):
-		_ = command.Process.Kill()
-		t.Fatal("service did not stop after SIGINT")
-	}
-	<-doneReading
+	combined := process.Stop(t)
 	if countApplicationConnections(t, db, applicationName) != 0 {
 		t.Fatal("service database connection remains after shutdown")
 	}
-	combined := output.String() + stderr.String()
 	assertLogLineContains(t, combined, "service ready", "command=chain-indexer")
 	assertLogLineContains(t, combined, "service stopping", "command=chain-indexer")
 	assertLogLineContains(t, combined, "service stopped", "command=chain-indexer")

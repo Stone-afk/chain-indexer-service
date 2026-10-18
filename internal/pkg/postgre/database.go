@@ -14,7 +14,7 @@ type schemaMigrationIdentity struct {
 	Name    string
 }
 
-var requiredSchemaMigrations = []schemaMigrationIdentity{{Version: 1, Name: "initial_schema"}, {Version: 2, Name: "event_biz_cursors"}}
+var requiredSchemaMigrations = []schemaMigrationIdentity{{Version: 1, Name: "initial_schema"}, {Version: 2, Name: "event_biz_cursors"}, {Version: 3, Name: "drop_chain_transactions_tx_type"}}
 
 func Open(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard})

@@ -168,6 +168,22 @@ func TestInitialSchemaCatalogMatchesPDF(t *testing.T) {
 	}
 }
 
+func TestSchemaV3CatalogExcludesTransactionType(t *testing.T) {
+	cfg := testioc.InitConfig(t)
+	db := testioc.InitDB(t, context.Background(), cfg.Database)
+	testioc.ResetSchema(t, db)
+	if _, err := testioc.InitMigrationRunner(t, db, migrationDir(t)).Up(context.Background()); err != nil {
+		t.Fatalf("Up() error = %v", err)
+	}
+	var exists bool
+	if err := db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'chain_transactions' AND column_name = 'tx_type')").Scan(&exists).Error; err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("V3 schema still contains chain_transactions.tx_type")
+	}
+}
+
 func TestSchemaCatalogComparisonDetectsDrift(t *testing.T) {
 	cfg := testioc.InitConfig(t)
 	db := testioc.InitDB(t, context.Background(), cfg.Database)

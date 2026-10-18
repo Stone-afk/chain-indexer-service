@@ -3,9 +3,12 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
 	"github.com/Stone-afk/chain-indexer-service/pkg/xsql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"time"
 )
 
@@ -46,7 +49,7 @@ func (r *chainRepository) SaveCanonicalBatch(ctx context.Context, b domain.Canon
 	e := b.Block
 	rows := postgre.CanonicalBatch{Block: postgre.ChainBlock{ChainID: e.ChainID, BlockNumber: e.BlockNumber, BlockHash: e.BlockHash, ParentHash: e.ParentHash, BlockTime: e.BlockTime, Status: e.Status, Finality: e.Finality, TransactionCount: e.TransactionCount, StateRoot: e.StateRoot, TransactionsRoot: e.TransactionsRoot, ReceiptsRoot: e.ReceiptsRoot, GasLimit: e.GasLimit, GasUsed: e.GasUsed, BaseFeePerGas: e.BaseFeePerGas, RawBlock: entityJSON(e.RawBlock), RawReceipts: entityJSON(e.RawReceipts), ReorgID: e.ReorgID, OrphanedAt: e.OrphanedAt, ChainVersion: e.ChainVersion, CreatedAt: e.CreatedAt}, Checkpoint: checkpointEntity(b.Checkpoint)}
 	for _, tx := range b.Transactions {
-		rows.Transactions = append(rows.Transactions, postgre.ChainTransaction{ChainID: tx.ChainID, BlockNumber: tx.BlockNumber, BlockHash: tx.BlockHash, TxHash: tx.TxHash, TxIndex: tx.TxIndex, FromAddress: tx.FromAddress, ToAddress: tx.ToAddress, Nonce: tx.Nonce, Value: tx.Value, Input: tx.Input, MethodID: tx.MethodID, MethodName: tx.MethodName, TxType: tx.TxType, GasLimit: tx.GasLimit, GasUsed: tx.GasUsed, GasPrice: tx.GasPrice, EffectiveGasPrice: tx.EffectiveGasPrice, TransactionFee: tx.TransactionFee, ExecutionStatus: tx.ExecutionStatus, ContractAddress: tx.ContractAddress, ChainStatus: tx.ChainStatus, ReorgID: tx.ReorgID, RawTransaction: entityJSON(tx.RawTransaction), RawReceipt: entityJSON(tx.RawReceipt), BlockTime: tx.BlockTime, CreatedAt: tx.CreatedAt, RevertedAt: tx.RevertedAt})
+		rows.Transactions = append(rows.Transactions, postgre.ChainTransaction{ChainID: tx.ChainID, BlockNumber: tx.BlockNumber, BlockHash: tx.BlockHash, TxHash: tx.TxHash, TxIndex: tx.TxIndex, FromAddress: tx.FromAddress, ToAddress: tx.ToAddress, Nonce: tx.Nonce, Value: tx.Value, Input: tx.Input, MethodID: tx.MethodID, MethodName: tx.MethodName, GasLimit: tx.GasLimit, GasUsed: tx.GasUsed, GasPrice: tx.GasPrice, EffectiveGasPrice: tx.EffectiveGasPrice, TransactionFee: tx.TransactionFee, ExecutionStatus: tx.ExecutionStatus, ContractAddress: tx.ContractAddress, ChainStatus: tx.ChainStatus, ReorgID: tx.ReorgID, RawTransaction: entityJSON(tx.RawTransaction), RawReceipt: entityJSON(tx.RawReceipt), BlockTime: tx.BlockTime, CreatedAt: tx.CreatedAt, RevertedAt: tx.RevertedAt})
 	}
 	for _, ev := range b.RawEvents {
 		rows.RawEvents = append(rows.RawEvents, postgre.ChainRawEvent{ChainID: ev.ChainID, BlockNumber: ev.BlockNumber, BlockHash: ev.BlockHash, TxHash: ev.TxHash, TxIndex: ev.TxIndex, LogIndex: ev.LogIndex, ContractAddress: ev.ContractAddress, Topic0: ev.Topic0, Topic1: ev.Topic1, Topic2: ev.Topic2, Topic3: ev.Topic3, EventData: ev.EventData, RawLog: xsql.JSONField(append([]byte(nil), ev.RawLog...)), ChainStatus: ev.ChainStatus, ReorgID: ev.ReorgID, RevertedAt: ev.RevertedAt})
@@ -54,11 +57,19 @@ func (r *chainRepository) SaveCanonicalBatch(ctx context.Context, b domain.Canon
 	for _, tr := range b.NativeTransfers {
 		rows.NativeTransfers = append(rows.NativeTransfers, postgre.ChainTransfer{ChainID: tr.ChainID, BlockNumber: tr.BlockNumber, BlockHash: tr.BlockHash, TxHash: tr.TxHash, TxIndex: tr.TxIndex, SourceType: tr.SourceType, SourceIndex: tr.SourceIndex, TransferType: tr.TransferType, TokenAddress: tr.TokenAddress, FromAddress: tr.FromAddress, ToAddress: tr.ToAddress, Amount: tr.Amount, TokenID: tr.TokenID, BatchIndex: tr.BatchIndex, ChainStatus: tr.ChainStatus, ReorgID: tr.ReorgID, RawData: entityJSON(tr.RawData), BlockTime: tr.BlockTime, CreatedAt: tr.CreatedAt, RevertedAt: tr.RevertedAt})
 	}
-	return r.dao.SaveCanonicalBatch(ctx, rows)
+	err := r.dao.SaveCanonicalBatch(ctx, rows)
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_chain_blocks_canonical_height" {
+		return fmt.Errorf("%w for chain %d at height %d: %w", ErrCanonicalHashConflict, e.ChainID, e.BlockNumber, err)
+	}
+	return err
 }
 
 func (r *chainRepository) ApplyReorg(ctx context.Context, reorg domain.Reorg, checkpoint domain.Checkpoint) error {
 	completedAt := time.Now().Unix()
-	row := postgre.ChainReorg{ReorgID: reorg.ReorgID, ChainID: reorg.ChainID, AncestorHeight: reorg.AncestorHeight, AncestorHash: reorg.AncestorHash, OldHeadHeight: reorg.OldHeadHeight, OldHeadHash: reorg.OldHeadHash, NewHeadHeight: reorg.NewHeadHeight, NewHeadHash: reorg.NewHeadHash, ReorgDepth: reorg.ReorgDepth, Status: "COMPLETED", DetectedAt: reorg.DetectedAt, CompletedAt: &completedAt}
+	row := postgre.ChainReorg{ReorgID: reorg.ReorgID, ChainID: reorg.ChainID, AncestorHeight: reorg.AncestorHeight, AncestorHash: reorg.AncestorHash, OldHeadHeight: reorg.OldHeadHeight, OldHeadHash: reorg.OldHeadHash, NewHeadHeight: reorg.NewHeadHeight, NewHeadHash: reorg.NewHeadHash, ReorgDepth: reorg.ReorgDepth, Status: string(domain.ReorgStatusCompleted), DetectedAt: reorg.DetectedAt, CompletedAt: &completedAt}
 	return r.dao.ApplyReorg(ctx, row, checkpointEntity(checkpoint))
 }

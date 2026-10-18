@@ -84,14 +84,14 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		if !ok {
 			return empty
 		}
-		return p.singleResult(raw, "ERC20", from, to, amount, nil)
+		return p.singleResult(raw, string(domain.TransferTypeERC20), from, to, amount, nil)
 	case sameEvent(event, p.events.ERC721Transfer):
 		tokenID, ok := uint256Decimal(decoded["tokenId"])
 		if !ok {
 			return empty
 		}
 		amount := "1"
-		return p.singleResult(raw, "ERC721", from, to, amount, &tokenID)
+		return p.singleResult(raw, string(domain.TransferTypeERC721), from, to, amount, &tokenID)
 	case sameEvent(event, p.events.ERC1155TransferSingle):
 		if _, ok := decoded["operator"].(string); !ok {
 			return empty
@@ -101,7 +101,7 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		if !idOK || !amountOK {
 			return empty
 		}
-		return p.singleResult(raw, "ERC1155", from, to, amount, &tokenID)
+		return p.singleResult(raw, string(domain.TransferTypeERC1155), from, to, amount, &tokenID)
 	case sameEvent(event, p.events.ERC1155TransferBatch):
 		if _, ok := decoded["operator"].(string); !ok {
 			return empty
@@ -113,7 +113,7 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		}
 		transfers := make([]domain.Transfer, len(ids))
 		for i := range ids {
-			transfers[i] = transferFrom(raw, "ERC1155", from, to, amounts[i], &ids[i], i)
+			transfers[i] = transferFrom(raw, string(domain.TransferTypeERC1155), from, to, amounts[i], &ids[i], i)
 		}
 		return domain.EventTransferResult{RawEventID: raw.ID, Transfers: transfers}
 	default:
@@ -137,8 +137,8 @@ func transferFrom(raw domain.RawEvent, typ, from, to, amount string, tokenID *st
 		BlockHash:    raw.BlockHash,
 		TxHash:       raw.TxHash,
 		TxIndex:      raw.TxIndex,
-		SourceType:   "EVENT_LOG",
-		SourceIndex:  strconv.Itoa(raw.LogIndex),
+		SourceType:   string(domain.TransferSourceEventLog),
+		SourceIndex:  sourceIndex(raw.LogIndex),
 		TransferType: typ,
 		TokenAddress: &tokenAddress,
 		FromAddress:  from,
@@ -152,6 +152,8 @@ func transferFrom(raw domain.RawEvent, typ, from, to, amount string, tokenID *st
 		RevertedAt:   raw.RevertedAt,
 	}
 }
+
+func sourceIndex(logIndex int) string { return strconv.Itoa(logIndex) }
 
 func uint256Decimals(value any) ([]string, bool) {
 	values, ok := value.([]*big.Int)
