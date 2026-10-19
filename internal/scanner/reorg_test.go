@@ -91,7 +91,7 @@ func TestReorgRescanFailureKeepsLastCommittedHeight(t *testing.T) {
 	r, p, calls := deepFork(t)
 	r.fail = "receipt:tx-4"
 	err := New(r, p, 1, 0, 0).HandleNewHead(context.Background())
-	require(t, !(!errors.Is(err, errStage)), err)
+	require(t, errors.Is(err, errStage), err)
 	require(t, !(len(p.reorgs) != 1 || !reflect.DeepEqual(heights(p.batches), []int64{3}) || p.cp.LastProcessedHeight != 3 || p.cp.LastProcessedHash != "hash-3"), p.reorgs, heights(p.batches), p.cp)
 	for _, c := range *calls {
 		require(t, !(c == "block:5"), "crossed failed rescan")

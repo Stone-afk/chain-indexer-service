@@ -17,7 +17,5 @@ func TestEventRepositoryIoCSignature(t *testing.T) {
 	// repository contract, including the atomic result/cursor operation.
 	r := initRepository(initDAO(&gorm.DB{}))
 	var commit func(context.Context, string, string, int64, []domain.EventTransferResult) error = r.CommitTransfersAndAdvanceCursor
-	if commit == nil {
-		t.Fatal("atomic event commit is unavailable")
-	}
+	_ = commit
 }

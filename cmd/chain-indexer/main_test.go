@@ -185,9 +185,7 @@ func (p *runPlan) run(c context.Context, id string, g <-chan struct{}, e func() 
 	case <-g:
 		permit := e()
 		p.arrival <- id
-		select {
-		case <-permit:
-		}
+		<-permit
 		if observer := p.permitObserver[id]; observer != nil {
 			if err := observer(); err != nil {
 				return err
