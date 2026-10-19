@@ -84,14 +84,14 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		if !ok {
 			return empty
 		}
-		return p.singleResult(raw, string(domain.TransferTypeERC20), from, to, amount, nil)
+		return p.singleResult(raw, domain.TransferTypeERC20.ToString(), from, to, amount, nil)
 	case sameEvent(event, p.events.ERC721Transfer):
 		tokenID, ok := uint256Decimal(decoded["tokenId"])
 		if !ok {
 			return empty
 		}
 		amount := "1"
-		return p.singleResult(raw, string(domain.TransferTypeERC721), from, to, amount, &tokenID)
+		return p.singleResult(raw, domain.TransferTypeERC721.ToString(), from, to, amount, &tokenID)
 	case sameEvent(event, p.events.ERC1155TransferSingle):
 		if _, ok := decoded["operator"].(string); !ok {
 			return empty
@@ -101,7 +101,7 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		if !idOK || !amountOK {
 			return empty
 		}
-		return p.singleResult(raw, string(domain.TransferTypeERC1155), from, to, amount, &tokenID)
+		return p.singleResult(raw, domain.TransferTypeERC1155.ToString(), from, to, amount, &tokenID)
 	case sameEvent(event, p.events.ERC1155TransferBatch):
 		if _, ok := decoded["operator"].(string); !ok {
 			return empty
@@ -113,7 +113,7 @@ func (p *Parser) mapDecoded(raw domain.RawEvent, event evmabi.ParsedEvent, decod
 		}
 		transfers := make([]domain.Transfer, len(ids))
 		for i := range ids {
-			transfers[i] = transferFrom(raw, string(domain.TransferTypeERC1155), from, to, amounts[i], &ids[i], i)
+			transfers[i] = transferFrom(raw, domain.TransferTypeERC1155.ToString(), from, to, amounts[i], &ids[i], i)
 		}
 		return domain.EventTransferResult{RawEventID: raw.ID, Transfers: transfers}
 	default:
@@ -137,7 +137,7 @@ func transferFrom(raw domain.RawEvent, typ, from, to, amount string, tokenID *st
 		BlockHash:    raw.BlockHash,
 		TxHash:       raw.TxHash,
 		TxIndex:      raw.TxIndex,
-		SourceType:   string(domain.TransferSourceEventLog),
+		SourceType:   domain.TransferSourceEventLog.ToString(),
 		SourceIndex:  sourceIndex(raw.LogIndex),
 		TransferType: typ,
 		TokenAddress: &tokenAddress,

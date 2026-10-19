@@ -14,6 +14,8 @@ import (
 // migrationDirection 表示迁移命令支持的操作。
 type migrationDirection string
 
+func (d migrationDirection) ToString() string { return string(d) }
+
 const (
 	// migrationDirectionUp 执行待应用迁移。
 	migrationDirectionUp migrationDirection = "up"
@@ -30,11 +32,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 	}
 	direction := migrationDirection(args[0])
 	if direction != migrationDirectionUp && direction != migrationDirectionDown && direction != migrationDirectionStatus {
-		fmt.Fprintf(stderr, "unknown migration direction %q\n", direction)
+		fmt.Fprintf(stderr, "unknown migration direction %q\n", direction.ToString())
 		return 2
 	}
 
-	flags := flag.NewFlagSet("migrate "+string(direction), flag.ContinueOnError)
+	flags := flag.NewFlagSet("migrate "+direction.ToString(), flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "configuration file")
 	migrationsDir := flags.String("migrations-dir", "script/postgre", "migration directory")
@@ -60,7 +62,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 
 	runner, operationErr := postgre.NewMigrationRunner(database, *migrationsDir)
 	if operationErr == nil {
-		logger := slog.New(slog.NewTextHandler(stdout, nil)).With("command", "migrate", "direction", string(direction))
+		logger := slog.New(slog.NewTextHandler(stdout, nil)).With("command", "migrate", "direction", direction.ToString())
 		switch direction {
 		case migrationDirectionUp:
 			var executed []postgre.Migration
@@ -90,7 +92,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lookupEnv
 	}
 	closeErr := postgre.Close(database)
 	if operationErr != nil {
-		fmt.Fprintf(stderr, "migrate %s: %v\n", direction, operationErr)
+		fmt.Fprintf(stderr, "migrate %s: %v\n", direction.ToString(), operationErr)
 		return 1
 	}
 	if closeErr != nil {

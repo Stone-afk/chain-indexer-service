@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 	"sort"
 
 	"gorm.io/gorm"
@@ -62,7 +61,7 @@ func (dao *eventDAO) CommitTransfersAndAdvanceCursor(ctx context.Context, biz, c
 				return err
 			}
 			for _, event := range events {
-				if event.ChainStatus != string(domain.ChainStatusActive) && event.ChainStatus != string(domain.ChainStatusReverted) {
+				if event.ChainStatus != ChainStatusActive.ToString() && event.ChainStatus != ChainStatusReverted.ToString() {
 					return fmt.Errorf("raw event %d has invalid chain status", event.ID)
 				}
 				states[event.ID] = event
@@ -82,7 +81,7 @@ func (dao *eventDAO) CommitTransfersAndAdvanceCursor(ctx context.Context, biz, c
 			for _, decoded := range result.Transfers {
 				row := decoded
 				row.ChainStatus, row.ReorgID, row.RevertedAt = state.ChainStatus, state.ReorgID, state.RevertedAt
-				if state.ChainStatus == string(domain.ChainStatusActive) {
+				if state.ChainStatus == ChainStatusActive.ToString() {
 					row.ReorgID, row.RevertedAt = nil, nil
 				}
 				if err := tx.Clauses(conflict).Create(&row).Error; err != nil {

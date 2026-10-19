@@ -3,6 +3,8 @@ package domain
 // BlockStatus 表示区块在重组语义下的状态。
 type BlockStatus string
 
+func (s BlockStatus) ToString() string { return string(s) }
+
 const (
 	// BlockStatusCanonical 表示区块属于当前规范链。
 	BlockStatusCanonical BlockStatus = "CANONICAL"
@@ -13,6 +15,8 @@ const (
 // Finality 表示区块的最终性阶段。
 type Finality string
 
+func (s Finality) ToString() string { return string(s) }
+
 const (
 	// FinalityConfirmed 表示区块已达到确认数要求。
 	FinalityConfirmed Finality = "CONFIRMED"
@@ -20,6 +24,8 @@ const (
 
 // ChainStatus 表示链上记录是否仍处于有效链。
 type ChainStatus string
+
+func (s ChainStatus) ToString() string { return string(s) }
 
 const (
 	// ChainStatusActive 表示记录仍属于有效链。
@@ -31,6 +37,8 @@ const (
 // ExecutionStatus 表示交易执行结果。
 type ExecutionStatus string
 
+func (s ExecutionStatus) ToString() string { return string(s) }
+
 const (
 	// ExecutionStatusSuccess 表示交易执行成功。
 	ExecutionStatusSuccess ExecutionStatus = "SUCCESS"
@@ -40,6 +48,8 @@ const (
 
 // TransferSource 表示转账记录的来源。
 type TransferSource string
+
+func (s TransferSource) ToString() string { return string(s) }
 
 const (
 	// TransferSourceTransactionValue 表示交易原生币 value 转账。
@@ -51,8 +61,12 @@ const (
 // TransferType 表示转账资产类型。
 type TransferType string
 
+func (s TransferType) ToString() string { return string(s) }
+
 // TransferSourceIndex 表示转账来源的稳定索引值。
 type TransferSourceIndex string
+
+func (s TransferSourceIndex) ToString() string { return string(s) }
 
 const (
 	// TransferSourceIndexTransactionValue 是原生交易 value 转账的稳定来源索引。
@@ -68,12 +82,4 @@ const (
 	TransferTypeERC721 TransferType = "ERC721"
 	// TransferTypeERC1155 表示 ERC-1155 多资产代币转账。
 	TransferTypeERC1155 TransferType = "ERC1155"
-)
-
-// ReorgStatus 表示重组处理记录的状态。
-type ReorgStatus string
-
-const (
-	// ReorgStatusCompleted 表示重组处理已完成。
-	ReorgStatusCompleted ReorgStatus = "COMPLETED"
 )

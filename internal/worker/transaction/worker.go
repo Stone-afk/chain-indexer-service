@@ -10,10 +10,14 @@ import (
 
 const (
 	// transactionBiz 是交易转账 worker 的业务游标名称。
-	transactionBiz string = "transaction"
+	transactionBiz workerKey = "transaction"
 	// evmChainFamily 是 EVM 链族的业务游标隔离键。
-	evmChainFamily string = "evm"
+	evmChainFamily workerKey = "evm"
 )
+
+type workerKey string
+
+func (k workerKey) ToString() string { return string(k) }
 
 type Worker struct {
 	repository   repository.EventRepository
@@ -32,7 +36,7 @@ func NewWorker(repository repository.EventRepository, parser *Parser, batchSize 
 }
 
 func (w *Worker) ProcessBatch(ctx context.Context) (int, error) {
-	cursor, err := w.repository.GetBizCursor(ctx, transactionBiz, evmChainFamily)
+	cursor, err := w.repository.GetBizCursor(ctx, transactionBiz.ToString(), evmChainFamily.ToString())
 	if err != nil {
 		return 0, err
 	}
@@ -56,8 +60,8 @@ func (w *Worker) ProcessBatch(ctx context.Context) (int, error) {
 	lastCursor := events[len(events)-1].ID
 	if err := w.repository.CommitTransfersAndAdvanceCursor(
 		ctx,
-		transactionBiz,
-		evmChainFamily,
+		transactionBiz.ToString(),
+		evmChainFamily.ToString(),
 		lastCursor,
 		results,
 	); err != nil {

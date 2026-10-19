@@ -20,6 +20,8 @@ const migrationAdvisoryLockKey int64 = 0x4348494e44584d47
 
 type migrationFileDirection string
 
+func (d migrationFileDirection) ToString() string { return string(d) }
+
 const (
 	// migrationFileDirectionUp 表示迁移文件的正向变更。
 	migrationFileDirectionUp migrationFileDirection = "up"
