@@ -336,7 +336,7 @@ func runtimeChains(f *testioc.RPCFixture) map[string]config.ChainConfig {
 	confirms := map[string]int64{"ethereum": 12, "bsc": 15, "polygon": 100, "arbitrum": 20, "optimism": 20, "base": 20, "avalanche": 15}
 	chains := make(map[string]config.ChainConfig, len(ids))
 	for name, id := range ids {
-		chains[name] = config.ChainConfig{Enabled: name == "ethereum", ChainID: id, StartBlock: 0, HTTPURL: f.HTTPURL(), WSURL: f.WSURL(), ConfirmBlocks: confirms[name]}
+		chains[name] = config.ChainConfig{Enabled: name == "ethereum", ChainID: id, StartBlock: 0, HTTPURL: f.HTTPURL(), WSURL: f.WSURL(), ConfirmBlocks: confirms[name], MaxReorgDepth: 128}
 	}
 	return chains
 }

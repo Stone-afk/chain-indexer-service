@@ -41,6 +41,9 @@ func validateRawService(raw rawConfig) error {
 		if chain.ConfirmBlocks <= 0 {
 			return fmt.Errorf("chain %q must have positive confirmation blocks", name)
 		}
+		if chain.MaxReorgDepth < 0 {
+			return fmt.Errorf("chain %q maxReorgDepth must be non-negative", name)
+		}
 		if err := validateURL(name, "HTTP", chain.HTTPURL, "http", "https"); err != nil {
 			return err
 		}

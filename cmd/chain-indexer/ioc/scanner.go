@@ -8,5 +8,5 @@ import (
 )
 
 func InitScanner(r provider.Reader, repo repository.ChainRepository, cfg config.ChainConfig) *scanner.Scanner {
-	return scanner.New(r, repo, cfg.ChainID, cfg.StartBlock, cfg.ConfirmBlocks)
+	return scanner.New(r, repo, cfg.ChainID, cfg.StartBlock, cfg.ConfirmBlocks, cfg.MaxReorgDepth)
 }

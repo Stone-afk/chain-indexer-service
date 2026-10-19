@@ -683,7 +683,7 @@ func (s *infuraSuite) ingestWindow(t *testing.T, b domain.Block, receipts []doma
 		rawReceipts = append(rawReceipts, receipt.RawReceipt)
 		logCount += len(receipt.Logs)
 	}
-	infuraOK(t, scanner.New(reader, chain, x.ChainID, b.Header.Number, 0).HandleNewHead(ctx), "frozen_scanner")
+	infuraOK(t, scanner.New(reader, chain, x.ChainID, b.Header.Number, 0, 0).HandleNewHead(ctx), "frozen_scanner")
 	cp, found, err := chain.GetCheckpoint(ctx, x.ChainID)
 	infuraOK(t, err, "frozen_checkpoint")
 	infuraEqual(t, "frozen_checkpoint_found", found, true)

@@ -32,6 +32,10 @@ type forkService struct {
 }
 
 func startForkService(t *testing.T, ctx context.Context, f *testioc.ForkRPCFixture, dsn string) *forkService {
+	return startForkServiceWithMaxReorgDepth(t, ctx, f, dsn, 128)
+}
+
+func startForkServiceWithMaxReorgDepth(t *testing.T, ctx context.Context, f *testioc.ForkRPCFixture, dsn string, maxReorgDepth int64) *forkService {
 	t.Helper()
 	app := fmt.Sprintf("fork-%d", time.Now().UnixNano())
 	serviceDSN := dsn + " application_name=" + app
@@ -52,7 +56,7 @@ func startForkService(t *testing.T, ctx context.Context, f *testioc.ForkRPCFixtu
 	}{
 		{"ethereum", 1, 12}, {"bsc", 56, 15}, {"polygon", 137, 100}, {"arbitrum", 42161, 20}, {"optimism", 10, 20}, {"base", 8453, 20}, {"avalanche", 43114, 15},
 	} {
-		chains[c.name] = config.ChainConfig{Enabled: c.name == "ethereum", ChainID: c.id, ConfirmBlocks: c.confirm, StartBlock: 0, HTTPURL: f.HTTPURL(), WSURL: f.WSURL()}
+		chains[c.name] = config.ChainConfig{Enabled: c.name == "ethereum", ChainID: c.id, ConfirmBlocks: c.confirm, MaxReorgDepth: maxReorgDepth, StartBlock: 0, HTTPURL: f.HTTPURL(), WSURL: f.WSURL()}
 	}
 	path := testioc.WriteServiceConfig(t, config.DatabaseConfig{DSN: serviceDSN}, chains)
 	cmd := exec.Command(buildBinary(t, "./cmd/chain-indexer"), "--config", path)
@@ -681,6 +685,97 @@ func TestLocalForkConfirmationBoundary(t *testing.T) {
 			t.Fatal("unconfirmed B block persisted")
 		}
 	}
+}
+
+// BRR-AC-003/004/005: an exact bound may recover, while one deeper fails
+// closed without persistence changes or RPC reads below the inclusive bound.
+func TestLocalForkMaxReorgDepthBoundary(t *testing.T) {
+	h := func(n int64) string { return fmt.Sprintf("0x%064x", n) }
+	branches := func(prefix int64, common int64) ([]testioc.ForkBlock, []testioc.ForkBlock) {
+		a := make([]testioc.ForkBlock, 0, 15)
+		b := make([]testioc.ForkBlock, 0, 15)
+		for n := int64(0); n <= 14; n++ {
+			aParent, bParent := h(0), h(0)
+			if n > 0 {
+				aParent = h(prefix + n - 1)
+				bParent = h(prefix + 0x1000 + n - 1)
+				if n == common+1 {
+					bParent = h(prefix + common)
+				}
+			}
+			a = append(a, testioc.ForkBlock{Height: n, Hash: h(prefix + n), Parent: aParent, Tx: h(prefix + n + 0x10)})
+			if n <= common {
+				b = append(b, a[n])
+				continue
+			}
+			b = append(b, testioc.ForkBlock{Height: n, Hash: h(prefix + 0x1000 + n), Parent: bParent, Tx: h(prefix + 0x1000 + n + 0x10)})
+		}
+		return a, b
+	}
+
+	t.Run("exact limit succeeds", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		db, dsn, progress := startForkDatabase(t, ctx)
+		f := testioc.InitForkRPCFixture(t)
+		a, b := branches(0x3000, 1)
+		f.SetBranch("bounded-exact-A", a)
+		f.SetBranch("bounded-exact-B", b)
+		f.Select("bounded-exact-A", 0)
+		service := startForkServiceWithMaxReorgDepth(t, ctx, f, dsn, 1)
+		f.Switch("bounded-exact-A", 14)
+		waitForkState(t, ctx, db, progress, 2, a[2].Hash, true)
+		f.Switch("bounded-exact-B", 14)
+		waitForkState(t, ctx, db, progress, 2, b[2].Hash, true)
+		service.Stop(t)
+		got := queryForkState(t, db)
+		if len(got.Reorgs) != 1 {
+			t.Fatalf("reorgs=%d", len(got.Reorgs))
+		}
+		r := got.Reorgs[0]
+		if r.AncestorHeight != 1 || r.AncestorHash != a[1].Hash || r.OldHeadHeight != 2 || r.OldHeadHash != a[2].Hash || r.NewHeadHeight != 14 || r.NewHeadHash != b[14].Hash || r.ReorgDepth != 1 || r.Status != "COMPLETED" {
+			t.Fatalf("reorg=%+v", r)
+		}
+		status := map[string]string{}
+		for _, block := range got.Blocks {
+			status[block.BlockHash] = block.Status
+		}
+		if status[a[2].Hash] != domain.BlockStatusOrphaned.ToString() || status[b[2].Hash] != domain.BlockStatusCanonical.ToString() {
+			t.Fatalf("fork block status: A2=%q B2=%q", status[a[2].Hash], status[b[2].Hash])
+		}
+		if got.Checkpoints[0].LastProcessedHeight != 2 || got.Checkpoints[0].LastProcessedHash != b[2].Hash {
+			t.Fatalf("checkpoint=%+v", got.Checkpoints)
+		}
+		if f.Requests("bounded-exact-B", 1, false) != 1 || f.Requests("bounded-exact-B", 0, false) != 0 {
+			t.Fatal("unexpected ancestor requests")
+		}
+	})
+
+	t.Run("over limit fails closed", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		db, dsn, progress := startForkDatabase(t, ctx)
+		f := testioc.InitForkRPCFixture(t)
+		a, b := branches(0x4000, 0)
+		f.SetBranch("bounded-over-A", a)
+		f.SetBranch("bounded-over-B", b)
+		f.Select("bounded-over-A", 0)
+		service := startForkServiceWithMaxReorgDepth(t, ctx, f, dsn, 1)
+		f.Switch("bounded-over-A", 14)
+		waitForkState(t, ctx, db, progress, 2, a[2].Hash, true)
+		before := queryForkState(t, db)
+		f.Switch("bounded-over-B", 14)
+		output := service.Failed(t, ctx)
+		if !strings.Contains(output, "component chain ethereum listener") {
+			t.Fatal("missing bounded recovery failure")
+		}
+		if !reflect.DeepEqual(before, queryForkState(t, db)) {
+			t.Fatal("over-limit recovery changed persisted state")
+		}
+		if f.Requests("bounded-over-B", 1, false) != 1 || f.Requests("bounded-over-B", 0, false) != 0 {
+			t.Fatal("unexpected ancestor requests")
+		}
+	})
 }
 
 // LE-23 catches same-height hash replacement without atomic rollback and replay.

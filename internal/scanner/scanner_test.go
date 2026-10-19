@@ -208,7 +208,7 @@ func TestSafeStartBlockResumeGap(t *testing.T) {
 			r.latest = tc.latest
 			p.found = tc.found
 			p.cp = domain.Checkpoint{ChainID: 1, LastProcessedHeight: tc.cp, LastProcessedHash: fmt.Sprintf("hash-%d", tc.cp)}
-			err := New(r, p, 1, tc.start, tc.confirm).HandleNewHead(context.Background())
+			err := New(r, p, 1, tc.start, tc.confirm, 0).HandleNewHead(context.Background())
 			require(t, err == nil, err)
 			if !reflect.DeepEqual(heights(p.batches), tc.want) {
 				t.Fatalf("heights %v want %v", heights(p.batches), tc.want)
@@ -220,7 +220,7 @@ func TestSafeStartBlockResumeGap(t *testing.T) {
 func TestLatestReadOnEveryHead(t *testing.T) {
 	r, p, calls := fixture(t)
 	r.latest = 3
-	s := New(r, p, 1, 3, 0)
+	s := New(r, p, 1, 3, 0, 0)
 	for _, latest := range []int64{3, 3, 2, 5} {
 		r.latest = latest
 		err := s.HandleNewHead(context.Background())
@@ -251,7 +251,7 @@ func TestFailureStopsBeforeNextHeight(t *testing.T) {
 				r.fail = stage
 				p.fail = stage
 			}
-			err := New(r, p, 1, 0, 0).HandleNewHead(context.Background())
+			err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background())
 			require(t, !(err == nil), "expected failure")
 			if stage != "mapping" && !errors.Is(err, errStage) {
 				t.Fatalf("lost cause %v", err)
@@ -271,7 +271,7 @@ func TestFinalObservationRejectsInitialCanonicalBlockBeforeWrite(t *testing.T) {
 	// The block body is observed as A, but the same-height final observation is B.
 	// A correct scanner must classify A, re-read the final header, and perform no write.
 	r.headerSeq[0] = []domain.BlockHeader{{Number: 0, Hash: "hash-0-B", ParentHash: "hash--1"}}
-	if err := New(r, p, 1, 0, 0).HandleNewHead(context.Background()); err == nil {
+	if err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background()); err == nil {
 		t.Fatal("expected final-observation mismatch")
 	}
 	if len(p.batches) != 0 || p.found || p.cp.LastProcessedHeight != 0 {
@@ -309,7 +309,7 @@ func TestFinalObservationBranchesAndFencesWrites(t *testing.T) {
 				p.stored[0] = *tc.stored
 			}
 			r.headerSeq[0] = []domain.BlockHeader{{Number: 0, Hash: "hash-0", ParentHash: "hash--1"}}
-			err := New(r, p, 1, 0, 0).HandleNewHead(context.Background())
+			err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background())
 			if tc.wantWrite == "" {
 				if err == nil || len(p.batches) != 0 || p.found {
 					t.Fatalf("orphaned without reorg wrote state: err=%v calls=%v", err, *calls)
@@ -345,7 +345,7 @@ func TestFinalObservationRejectsEachHeaderIdentityMismatch(t *testing.T) {
 				h.ParentHash = "different"
 			}
 			r.headerSeq[0] = []domain.BlockHeader{h}
-			if err := New(r, p, 1, 0, 0).HandleNewHead(context.Background()); err == nil || !errors.Is(err, ErrFinalIdentityMismatch) || len(p.batches) != 0 || p.found {
+			if err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background()); err == nil || !errors.Is(err, ErrFinalIdentityMismatch) || len(p.batches) != 0 || p.found {
 				t.Fatalf("mismatch accepted or wrote state: err=%v batches=%d", err, len(p.batches))
 			}
 			calls := *r.calls
@@ -378,7 +378,7 @@ func TestStateFenceRejectionsAreClassified(t *testing.T) {
 			r.latest = 0
 			p.stored[0] = tc.stored
 			r.headerSeq[0] = []domain.BlockHeader{{Number: 0, Hash: "hash-0", ParentHash: "hash--1"}}
-			err := New(r, p, 1, 0, 0).HandleNewHead(context.Background())
+			err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background())
 			if !errors.Is(err, ErrStateFenceRejected) || len(p.batches) != 0 || p.found {
 				t.Fatalf("err=%v batches=%d found=%v", err, len(p.batches), p.found)
 			}
@@ -403,7 +403,7 @@ func TestScannerExternalReadAndReactivationErrorsPropagate(t *testing.T) {
 			}
 			r.headerSeq[0] = []domain.BlockHeader{{Number: 0, Hash: "hash-0", ParentHash: "hash--1"}}
 			r.fail, p.fail = tc.fail, tc.fail
-			err := New(r, p, 1, 0, 0).HandleNewHead(context.Background())
+			err := New(r, p, 1, 0, 0, 0).HandleNewHead(context.Background())
 			if !errors.Is(err, errStage) || len(p.batches) != 0 || p.cp.LastProcessedHeight != 0 {
 				t.Fatalf("err=%v batches=%d cp=%+v", err, len(p.batches), p.cp)
 			}

@@ -144,6 +144,7 @@ func normalize(raw rawConfig) *Config {
 			HTTPURL:       chain.HTTPURL,
 			WSURL:         chain.WSURL,
 			ConfirmBlocks: chain.ConfirmBlocks,
+			MaxReorgDepth: chain.MaxReorgDepth,
 		}
 	}
 	return config

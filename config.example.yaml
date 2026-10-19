@@ -10,6 +10,7 @@ chains:
     httpUrl: https://mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 12
+    maxReorgDepth: 64
   bsc:
     enabled: true
     # Replace with the intended deployment start height.
@@ -18,6 +19,7 @@ chains:
     httpUrl: https://bsc-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://bsc-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 15
+    maxReorgDepth: 32
   polygon:
     enabled: true
     # Replace with the intended deployment start height.
@@ -26,6 +28,7 @@ chains:
     httpUrl: https://polygon-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://polygon-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 100
+    maxReorgDepth: 512
   arbitrum:
     enabled: true
     # Replace with the intended deployment start height.
@@ -34,6 +37,7 @@ chains:
     httpUrl: https://arbitrum-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://arbitrum-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 20
+    maxReorgDepth: 128
   optimism:
     enabled: true
     # Replace with the intended deployment start height.
@@ -42,6 +46,7 @@ chains:
     httpUrl: https://optimism-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://optimism-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 20
+    maxReorgDepth: 450
   base:
     enabled: true
     # Replace with the intended deployment start height.
@@ -50,6 +55,7 @@ chains:
     httpUrl: https://base-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://base-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 20
+    maxReorgDepth: 600
   avalanche:
     enabled: true
     # Replace with the intended deployment start height.
@@ -58,3 +64,4 @@ chains:
     httpUrl: https://avalanche-mainnet.infura.io/v3/${INFURA_API_KEY}
     wsUrl: wss://avalanche-mainnet.infura.io/ws/v3/${INFURA_API_KEY}
     confirmBlocks: 15
+    maxReorgDepth: 128

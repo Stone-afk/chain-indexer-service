@@ -12,8 +12,12 @@ import (
 // recoverReorg 从旧 checkpoint 的前一高度开始向后查找本地链与节点当前主链的公共祖先，
 // 找到后原子作废旧分支数据并把 checkpoint 回退到公共祖先。
 func (s *Scanner) recoverReorg(ctx context.Context, old domain.Checkpoint, latest int64) (domain.Checkpoint, error) {
-	// checkpoint 所在高度已确认发生分叉，因此从它的父高度开始逐块向创世块回溯。
-	for height := old.LastProcessedHeight - 1; height >= 0; height-- {
+	// checkpoint 所在高度已确认发生分叉，因此从它的父高度开始在配置允许区间内逐块回溯。
+	lowerBound := s.startBlock
+	if candidate := old.LastProcessedHeight - s.maxReorgDepth; candidate > lowerBound {
+		lowerBound = candidate
+	}
+	for height := old.LastProcessedHeight - 1; height >= lowerBound; height-- {
 		// 读取本地在当前高度保存的 canonical 区块，作为旧分支身份。
 		local, found, err := s.repo.GetCanonicalBlock(ctx, s.chainID, height)
 		// 本地 canonical 区块查询失败时无法继续可靠地寻找公共祖先。
@@ -90,6 +94,5 @@ func (s *Scanner) recoverReorg(ctx context.Context, old domain.Checkpoint, lates
 		// 返回公共祖先 checkpoint，调用方会从其下一高度重新扫描当前 canonical 分支。
 		return ancestor, nil
 	}
-	// 回溯到高度 0 仍无哈希一致区块，说明现有本地历史无法安全自动恢复。
-	return domain.Checkpoint{}, fmt.Errorf("no common ancestor for checkpoint at height %d", old.LastProcessedHeight)
+	return domain.Checkpoint{}, fmt.Errorf("automatic reorg recovery boundary exhausted: chainID=%d oldHeight=%d maxDepth=%d lowerBound=%d: %w", s.chainID, old.LastProcessedHeight, s.maxReorgDepth, lowerBound, ErrMaxReorgDepthExceeded)
 }

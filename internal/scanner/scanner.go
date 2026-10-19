@@ -12,6 +12,7 @@ import (
 var (
 	ErrFinalIdentityMismatch = errors.New("final block identity mismatch")
 	ErrStateFenceRejected    = errors.New("stored block state fence rejected")
+	ErrMaxReorgDepthExceeded = errors.New("maximum automatic reorg recovery boundary exceeded")
 )
 
 func (s *Scanner) HandleNewHead(ctx context.Context) error {

@@ -20,6 +20,7 @@ type ChainConfig struct {
 	HTTPURL       string
 	WSURL         string
 	ConfirmBlocks int64
+	MaxReorgDepth int64
 }
 
 type rawConfig struct {
@@ -43,4 +44,5 @@ type rawChainConfig struct {
 	HTTPURL       string `yaml:"httpUrl"`
 	WSURL         string `yaml:"wsUrl"`
 	ConfirmBlocks int64  `yaml:"confirmBlocks"`
+	MaxReorgDepth int64  `yaml:"maxReorgDepth"`
 }
