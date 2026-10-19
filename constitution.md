@@ -1,6 +1,6 @@
 # chain-indexer-service 项目开发宪法
 
-Version: 1.0.0 · Ratified: 2026-10-17
+Version: 1.1.0 · Ratified: 2026-10-17 · Last amended: 2026-10-19
 
 本文件约束本仓库的架构判断、实现取舍与质量底线。`AGENTS.md` 是项目上下文入口；非简单任务开始前应主动读取本文和相关源码。本文高于普通协作建议，但不高于系统/平台规则，也不高于用户在当前任务中的明确指令。
 
@@ -99,6 +99,20 @@ Version: 1.0.0 · Ratified: 2026-10-17
 - **8.2** 跨层链数据语义优先归 `internal/domain`，DAO 专属语义归 `internal/repository/postgre`，迁移方向归 `internal/pkg/postgre`，迁移命令 action 归 `cmd/migrate`；禁止新增全局 constants/consts 包。持久化字段继续使用稳定 wire 字符串，边界处用生产常量转换，避免改变既有 schema 与外部数据契约。
 - **8.3** RPC/ABI 协议值、SQL 标识/SQLSTATE/constraint、配置键、日志与错误文案不因形式相似而常量化；历史 migration 内容不修改。协议 raw 值和用于验证非法输入的 sentinel 可以保留裸字面量。
 - **8.4** 常量重构不得扩大测试边界：普通测试继续离线，真实 PostgreSQL/RPC/HTTP/WebSocket 只在 e2e 集成测试；支持值应复用生产常量，非法 sentinel/raw wire 输入可直接使用裸字面量以明确测试异常语义。
+- **8.5** 命名常量类型应按实际底层类型提供明确的边界转换方法：`string` 使用 `ToString()`，`int` 使用 `ToInt()`，`int32` 使用 `ToInt32()`，`int64` 使用 `ToInt64()`，其他底层类型遵循同样规则。同类型内部比较或 `switch` 无需转换；只有进入基础类型字段、ORM、序列化、日志等边界时才转换，禁止用显式强制转换绕过约定。相同 wire 值在 domain 与 DAO 中也分别由各自 owner 定义，不跨层共享。
+
+---
+
+## 第九条：对外 README 原则 (Public README Contract)
+
+核心：根目录 `README.md` 是面向外部读者的中英双语项目介绍，不是安装、运维、测试或内部验收使用手册。
+
+- **9.1** README 的中文与英文必须表达相同的项目定位、当前能力、架构边界和限制；不得只翻译标题、遗漏一侧的关键约束，或让两种语言描述不同阶段的系统。
+- **9.2** README 聚焦项目价值、架构、核心能力、模块职责、技术栈、数据一致性模型和明确非目标。启动命令、migration 操作、配置步骤、Docker 生命周期、内部 Task 编号及验收流水账应放入 `AGENTS.md` 或专门工程文档，不在 README 中展开成使用手册。
+- **9.3** README 必须包含与当前生产装配一致的架构图。默认采用普通 Markdown 代码块内的 ASCII 图，使 GitHub、本地 IDE、终端和不支持 Mermaid 的阅读器都能显示；如改用 Mermaid，必须确认主要托管平台能够渲染，并同时提供可理解的文本说明。
+- **9.4** 架构图和能力描述只能展示当前真实存在且已接入生产入口的组件与数据流。测试 fixture、mock、仅有 schema/entity 的预留字段或未来规划不得画成已运行能力；未上线能力必须明确标为当前范围外。
+- **9.5** 修改服务入口、IoC、provider、listener、scanner、worker、repository/DAO、数据库边界或 migration 生命周期时，必须同步检查 README 架构图和双语说明。README 与真实实现冲突时，以代码和版本化 SQL 为事实，并在同一变更中修正文档。
+- **9.6** README 不得包含 API key、DSN、完整私有 endpoint、内部环境路径、供应商原始响应或其他凭据；也不得把测试通过、源码存在或 schema 预留夸大为生产部署、链上 finality 或分布式强一致保证。
 
 ---
 
