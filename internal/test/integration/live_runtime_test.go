@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/config"
+	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
 	testioc "github.com/Stone-afk/chain-indexer-service/internal/test/ioc"
 	"github.com/Stone-afk/chain-indexer-service/pkg/evm/abi"
 	"gorm.io/gorm"
@@ -215,31 +216,27 @@ func (l *liveLocal) snapshot(t *testing.T) map[string]string {
 	}
 	return facts
 }
-func (l *liveLocal) replay(t *testing.T, height int64) {
+func (l *liveLocal) replayLE18(t *testing.T) {
 	t.Helper()
-	// Only rewind the scanner checkpoint. The next real process must fetch and
-	// replay the same RPC objects through production persistence.
-	if err := l.db.Exec("DELETE FROM chain_checkpoints").Error; err != nil {
+	var batch postgre.CanonicalBatch
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ? AND block_hash = ?", 1, liveHash(107)).Take(&batch.Block).Error; err != nil {
 		t.Fatal(err)
 	}
-	b, err := testioc.NewNotifyBarrier(l.ctx, l.dsn, "chain_checkpoints")
-	if err != nil {
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ? AND block_hash = ?", 1, liveHash(107)).Find(&batch.Transactions).Error; err != nil {
 		t.Fatal(err)
 	}
-	defer b.Close(context.Background())
-	p := l.start(t, 1)
-	want := l.f.RequestCount("eth_getTransactionReceipt") + 1
-	l.f.PublishHead(map[string]any{"number": fmt.Sprintf("0x%x", height)})
-	if err := l.f.WaitForRequests(l.ctx, "eth_getTransactionReceipt", want); err != nil {
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ? AND block_hash = ?", 1, liveHash(107)).Find(&batch.RawEvents).Error; err != nil {
 		t.Fatal(err)
 	}
-	for l.count(t, "SELECT COUNT(*) FROM chain_checkpoints WHERE last_processed_height=?", height) != 1 {
-		if err := b.WaitForNotification(l.ctx); err != nil {
-			t.Fatal(err)
-		}
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ? AND block_hash = ? AND source_type = ?", 1, liveHash(107), postgre.TransferSourceTransactionValue.ToString()).Find(&batch.NativeTransfers).Error; err != nil {
+		t.Fatal(err)
 	}
-	p.stop(t)
-	l.checkpoint(t, 1, height)
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ?", 1).Take(&batch.Checkpoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := postgre.NewChainDAO(l.db).SaveCanonicalBatch(l.ctx, batch); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLiveLE14StartBlockBoundedScan(t *testing.T) {
@@ -432,13 +429,31 @@ func TestLiveLE18DatabaseUniquenessSingleRowFact(t *testing.T) {
 	l.f.PublishHead(b)
 	l.waitCursor(t, 2)
 	p.stop(t)
-	before := l.snapshot(t)
 	if err := l.f.WaitForNoSubscribers(l.ctx); err != nil {
 		t.Fatal(err)
 	}
-	l.replay(t, 7)
+	before := l.snapshot(t)
+	var checkpointBefore postgre.ChainCheckpoint
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ?", 1).Take(&checkpointBefore).Error; err != nil {
+		t.Fatal(err)
+	}
+	if checkpointBefore.ChainID != 1 || checkpointBefore.LastProcessedHeight != 7 || checkpointBefore.LastProcessedHash != liveHash(107) {
+		t.Fatalf("checkpoint before replay=%+v", checkpointBefore)
+	}
+	cursorBefore := l.count(t, "SELECT cursor FROM chain_event_biz_cursors WHERE biz='transaction' AND chain_family='evm'")
+	l.replayLE18(t)
 	if !reflect.DeepEqual(before, l.snapshot(t)) {
 		t.Fatal("canonical replay changed natural-key row IDs or contents")
+	}
+	var checkpointAfter postgre.ChainCheckpoint
+	if err := l.db.WithContext(l.ctx).Where("chain_id = ?", 1).Take(&checkpointAfter).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(checkpointBefore, checkpointAfter) {
+		t.Fatalf("canonical replay changed checkpoint: before=%+v after=%+v", checkpointBefore, checkpointAfter)
+	}
+	if cursorAfter := l.count(t, "SELECT cursor FROM chain_event_biz_cursors WHERE biz='transaction' AND chain_family='evm'"); cursorAfter != cursorBefore {
+		t.Fatalf("canonical replay changed cursor: before=%d after=%d", cursorBefore, cursorAfter)
 	}
 	for _, tc := range []struct {
 		table string

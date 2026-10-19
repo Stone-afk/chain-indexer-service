@@ -26,6 +26,11 @@ func (r *chainRepository) GetCanonicalBlock(ctx context.Context, chainID, height
 	return domain.StoredBlock{ChainID: e.ChainID, BlockNumber: e.BlockNumber, BlockHash: e.BlockHash, ParentHash: e.ParentHash, BlockTime: e.BlockTime, Status: e.Status, Finality: e.Finality, TransactionCount: e.TransactionCount, StateRoot: e.StateRoot, TransactionsRoot: e.TransactionsRoot, ReceiptsRoot: e.ReceiptsRoot, GasLimit: e.GasLimit, GasUsed: e.GasUsed, BaseFeePerGas: e.BaseFeePerGas, RawBlock: domainJSON(e.RawBlock), RawReceipts: domainJSON(e.RawReceipts), ReorgID: e.ReorgID, OrphanedAt: e.OrphanedAt, ChainVersion: e.ChainVersion, CreatedAt: e.CreatedAt}, found, err
 }
 
+func (r *chainRepository) GetBlockByHash(ctx context.Context, chainID int64, hash string) (domain.StoredBlock, bool, error) {
+	e, found, err := r.dao.GetBlockByHash(ctx, chainID, hash)
+	return domain.StoredBlock{ChainID: e.ChainID, BlockNumber: e.BlockNumber, BlockHash: e.BlockHash, ParentHash: e.ParentHash, BlockTime: e.BlockTime, Status: e.Status, Finality: e.Finality, TransactionCount: e.TransactionCount, StateRoot: e.StateRoot, TransactionsRoot: e.TransactionsRoot, ReceiptsRoot: e.ReceiptsRoot, GasLimit: e.GasLimit, GasUsed: e.GasUsed, BaseFeePerGas: e.BaseFeePerGas, RawBlock: domainJSON(e.RawBlock), RawReceipts: domainJSON(e.RawReceipts), ReorgID: e.ReorgID, OrphanedAt: e.OrphanedAt, ChainVersion: e.ChainVersion, CreatedAt: e.CreatedAt}, found, err
+}
+
 func domainJSON(raw *xsql.JSONField) json.RawMessage {
 	if raw == nil {
 		return nil
@@ -45,7 +50,36 @@ func checkpointEntity(c domain.Checkpoint) postgre.ChainCheckpoint {
 	return postgre.ChainCheckpoint{ChainID: c.ChainID, LastProcessedHeight: c.LastProcessedHeight, LastProcessedHash: c.LastProcessedHash}
 }
 
-func (r *chainRepository) SaveCanonicalBatch(ctx context.Context, b domain.CanonicalBatch) error {
+func (r *chainRepository) SaveCanonicalBatch(ctx context.Context, b domain.CanonicalBatch, o domain.BlockHeader) error {
+	if o.Number != b.Block.BlockNumber || o.Hash != b.Block.BlockHash || o.ParentHash != b.Block.ParentHash ||
+		b.Checkpoint.ChainID != b.Block.ChainID || b.Checkpoint.LastProcessedHeight != b.Block.BlockNumber || b.Checkpoint.LastProcessedHash != b.Block.BlockHash {
+		return fmt.Errorf("%w: canonical batch and observed header identity mismatch", ErrCanonicalIdentityMismatch)
+	}
+	return canonicalWriteError(r.dao.SaveCanonicalBatch(ctx, entityBatch(b)), b)
+}
+
+func (r *chainRepository) ReactivateCanonicalBatch(ctx context.Context, b domain.CanonicalBatch, o domain.BlockHeader, expected string) error {
+	if expected == "" || o.Number != b.Block.BlockNumber || o.Hash != b.Block.BlockHash || o.ParentHash != b.Block.ParentHash || b.Checkpoint.ChainID != b.Block.ChainID || b.Checkpoint.LastProcessedHeight != b.Block.BlockNumber || b.Checkpoint.LastProcessedHash != b.Block.BlockHash {
+		return fmt.Errorf("%w: canonical reactivation identity mismatch", ErrCanonicalIdentityMismatch)
+	}
+	return canonicalWriteError(r.dao.ReactivateCanonicalBatch(ctx, entityBatch(b), expected), b)
+}
+
+func canonicalWriteError(err error, b domain.CanonicalBatch) error {
+	if errors.Is(err, postgre.ErrCanonicalIdentityMismatch) {
+		return fmt.Errorf("%w: %w", ErrCanonicalIdentityMismatch, err)
+	}
+	if errors.Is(err, postgre.ErrStateFenceRejected) {
+		return fmt.Errorf("%w: %w", ErrStateFenceRejected, err)
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_chain_blocks_canonical_height" {
+		return fmt.Errorf("%w for chain %d at height %d: %w", ErrCanonicalHashConflict, b.Block.ChainID, b.Block.BlockNumber, err)
+	}
+	return err
+}
+
+func entityBatch(b domain.CanonicalBatch) postgre.CanonicalBatch {
 	e := b.Block
 	rows := postgre.CanonicalBatch{Block: postgre.ChainBlock{ChainID: e.ChainID, BlockNumber: e.BlockNumber, BlockHash: e.BlockHash, ParentHash: e.ParentHash, BlockTime: e.BlockTime, Status: e.Status, Finality: e.Finality, TransactionCount: e.TransactionCount, StateRoot: e.StateRoot, TransactionsRoot: e.TransactionsRoot, ReceiptsRoot: e.ReceiptsRoot, GasLimit: e.GasLimit, GasUsed: e.GasUsed, BaseFeePerGas: e.BaseFeePerGas, RawBlock: entityJSON(e.RawBlock), RawReceipts: entityJSON(e.RawReceipts), ReorgID: e.ReorgID, OrphanedAt: e.OrphanedAt, ChainVersion: e.ChainVersion, CreatedAt: e.CreatedAt}, Checkpoint: checkpointEntity(b.Checkpoint)}
 	for _, tx := range b.Transactions {
@@ -57,19 +91,11 @@ func (r *chainRepository) SaveCanonicalBatch(ctx context.Context, b domain.Canon
 	for _, tr := range b.NativeTransfers {
 		rows.NativeTransfers = append(rows.NativeTransfers, postgre.ChainTransfer{ChainID: tr.ChainID, BlockNumber: tr.BlockNumber, BlockHash: tr.BlockHash, TxHash: tr.TxHash, TxIndex: tr.TxIndex, SourceType: tr.SourceType, SourceIndex: tr.SourceIndex, TransferType: tr.TransferType, TokenAddress: tr.TokenAddress, FromAddress: tr.FromAddress, ToAddress: tr.ToAddress, Amount: tr.Amount, TokenID: tr.TokenID, BatchIndex: tr.BatchIndex, ChainStatus: tr.ChainStatus, ReorgID: tr.ReorgID, RawData: entityJSON(tr.RawData), BlockTime: tr.BlockTime, CreatedAt: tr.CreatedAt, RevertedAt: tr.RevertedAt})
 	}
-	err := r.dao.SaveCanonicalBatch(ctx, rows)
-	if err == nil {
-		return nil
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_chain_blocks_canonical_height" {
-		return fmt.Errorf("%w for chain %d at height %d: %w", ErrCanonicalHashConflict, e.ChainID, e.BlockNumber, err)
-	}
-	return err
+	return rows
 }
 
 func (r *chainRepository) ApplyReorg(ctx context.Context, reorg domain.Reorg, checkpoint domain.Checkpoint) error {
 	completedAt := time.Now().Unix()
-	row := postgre.ChainReorg{ReorgID: reorg.ReorgID, ChainID: reorg.ChainID, AncestorHeight: reorg.AncestorHeight, AncestorHash: reorg.AncestorHash, OldHeadHeight: reorg.OldHeadHeight, OldHeadHash: reorg.OldHeadHash, NewHeadHeight: reorg.NewHeadHeight, NewHeadHash: reorg.NewHeadHash, ReorgDepth: reorg.ReorgDepth, Status: string(domain.ReorgStatusCompleted), DetectedAt: reorg.DetectedAt, CompletedAt: &completedAt}
+	row := postgre.ChainReorg{ReorgID: reorg.ReorgID, ChainID: reorg.ChainID, AncestorHeight: reorg.AncestorHeight, AncestorHash: reorg.AncestorHash, OldHeadHeight: reorg.OldHeadHeight, OldHeadHash: reorg.OldHeadHash, NewHeadHeight: reorg.NewHeadHeight, NewHeadHash: reorg.NewHeadHash, ReorgDepth: reorg.ReorgDepth, Status: postgre.ReorgStatusCompleted.ToString(), DetectedAt: reorg.DetectedAt, CompletedAt: &completedAt}
 	return r.dao.ApplyReorg(ctx, row, checkpointEntity(checkpoint))
 }

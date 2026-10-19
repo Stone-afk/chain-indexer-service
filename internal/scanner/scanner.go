@@ -2,10 +2,16 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/domain"
+)
+
+var (
+	ErrFinalIdentityMismatch = errors.New("final block identity mismatch")
+	ErrStateFenceRejected    = errors.New("stored block state fence rejected")
 )
 
 func (s *Scanner) HandleNewHead(ctx context.Context) error {
@@ -66,8 +72,39 @@ func (s *Scanner) HandleNewHead(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("map block %d: %w", height, err)
 		}
-		if err := s.repo.SaveCanonicalBatch(ctx, batch); err != nil {
-			return fmt.Errorf("save block %d: %w", height, err)
+		stored, found, err := s.repo.GetBlockByHash(ctx, s.chainID, block.Header.Hash)
+		if err != nil {
+			return fmt.Errorf("classify block %d: %w", height, err)
+		}
+		// This final RPC observation narrows, but cannot eliminate, the window
+		// before the database write; it is not a distributed consistency fence.
+		finalHeader, err := s.reader.HeaderByNumber(ctx, height)
+		if err != nil {
+			return fmt.Errorf("read final block header %d: %w", height, err)
+		}
+		if finalHeader.Number != block.Header.Number || finalHeader.Hash != block.Header.Hash || finalHeader.ParentHash != block.Header.ParentHash {
+			return fmt.Errorf("final block header mismatch at height %d: %w", height, ErrFinalIdentityMismatch)
+		}
+		if !found {
+			if err := s.repo.SaveCanonicalBatch(ctx, batch, finalHeader); err != nil {
+				return fmt.Errorf("save block %d: %w", height, err)
+			}
+		} else {
+			switch stored.Status {
+			case domain.BlockStatusCanonical.ToString():
+				if err := s.repo.SaveCanonicalBatch(ctx, batch, finalHeader); err != nil {
+					return fmt.Errorf("replay block %d: %w", height, err)
+				}
+			case domain.BlockStatusOrphaned.ToString():
+				if stored.ReorgID == nil || *stored.ReorgID == "" {
+					return fmt.Errorf("orphaned block %d missing reorg ID: %w", height, ErrStateFenceRejected)
+				}
+				if err := s.repo.ReactivateCanonicalBatch(ctx, batch, finalHeader, *stored.ReorgID); err != nil {
+					return fmt.Errorf("reactivate block %d: %w", height, err)
+				}
+			default:
+				return fmt.Errorf("unsupported stored block status %q at height %d: %w", stored.Status, height, ErrStateFenceRejected)
+			}
 		}
 		previousHash = block.Header.Hash
 		if height == safe {

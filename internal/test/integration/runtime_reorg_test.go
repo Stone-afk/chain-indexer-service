@@ -177,7 +177,7 @@ func TestSameHeightDifferentHashRollsBack(t *testing.T) {
 			LastProcessedHash: second.Checkpoint.LastProcessedHash,
 		},
 	}
-	if err := repository.NewChainRepository(postgre.NewChainDAO(db)).SaveCanonicalBatch(ctx, secondDomain); !errors.Is(err, repository.ErrCanonicalHashConflict) {
+	if err := repository.NewChainRepository(postgre.NewChainDAO(db)).SaveCanonicalBatch(ctx, secondDomain, domain.BlockHeader{Number: secondDomain.Block.BlockNumber, Hash: secondDomain.Block.BlockHash, ParentHash: secondDomain.Block.ParentHash}); !errors.Is(err, repository.ErrCanonicalHashConflict) {
 		t.Fatalf("err=%v", err)
 	}
 	var cp postgre.ChainCheckpoint

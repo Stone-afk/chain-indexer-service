@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Stone-afk/chain-indexer-service/internal/config"
+	"github.com/Stone-afk/chain-indexer-service/internal/domain"
 	"github.com/Stone-afk/chain-indexer-service/internal/repository/postgre"
 	testioc "github.com/Stone-afk/chain-indexer-service/internal/test/ioc"
 	"github.com/jackc/pgx/v5"
@@ -290,6 +291,201 @@ func queryForkState(t *testing.T, db *gorm.DB) forkState {
 		}
 	}
 	return s
+}
+
+// CRS-AC-002: a final same-height observation that changes from A to B must
+// reject A atomically; a restarted service must commit and consume B normally.
+func TestLocalForkFinalObservationSwitchRejectsA(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	db, dsn, progress := startForkDatabase(t, ctx)
+	f := testioc.InitForkRPCFixture(t)
+	h := func(n int64) string { return fmt.Sprintf("0x%064x", n) }
+	a, b := make([]testioc.ForkBlock, 0, 15), make([]testioc.ForkBlock, 0, 15)
+	for n := int64(0); n <= 14; n++ {
+		parentA := h(0)
+		if n > 0 {
+			parentA = h(0x2a00 + n - 1)
+		}
+		a = append(a, testioc.ForkBlock{Height: n, Hash: h(0x2a00 + n), Parent: parentA, Tx: h(0x2a10 + n)})
+		blockB := a[n]
+		if n >= 2 {
+			blockB.Hash, blockB.Tx = h(0x2b00+n), h(0x2b10+n)
+			if n > 2 {
+				blockB.Parent = h(0x2b00 + n - 1)
+			}
+		}
+		b = append(b, blockB)
+	}
+	f.SetBranch("final-A", a)
+	f.SetBranch("final-B", b)
+	f.Select("final-A", 0)
+	service := startForkService(t, ctx, f, dsn)
+	f.Switch("final-A", 13) // confirmBlocks=12: only the common prefix is safe.
+	waitForkState(t, ctx, db, progress, 1, a[1].Hash, true)
+	before := queryForkState(t, db)
+	assertFinalObservationState(t, before, a[:2])
+	assertNoA := func() {
+		t.Helper()
+		// No status filter: even an orphaned/reverted A row is forbidden.
+		for _, table := range []string{"chain_blocks", "chain_transactions", "chain_raw_events", "chain_transfers"} {
+			query := db.Table(table).Where("block_hash = ?", a[2].Hash)
+			if table != "chain_blocks" {
+				query = db.Table(table).Where("block_hash = ? OR tx_hash = ?", a[2].Hash, a[2].Tx)
+			}
+			var count int64
+			if err := query.Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("A target or its transaction persisted in %s: %d rows", table, count)
+			}
+		}
+	}
+	assertNoA()
+
+	body := f.Gate("final-A", 2, true)
+	t.Cleanup(body.Release)
+	f.Switch("final-A", 14)
+	if err := body.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Requests("final-A", 2, true); got != 1 {
+		t.Fatalf("A body requests=%d, want 1", got)
+	}
+	// The fixture snapshots A's body before blocking. Its unique tx hash
+	// retains A's receipt even after Select changes the current HTTP branch.
+	final := f.Gate("final-B", 2, false)
+	t.Cleanup(final.Release)
+	f.Select("final-B", 14)
+	body.Release()
+	if err := final.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []struct {
+		branch string
+		full   bool
+		want   int
+	}{{"final-A", true, 1}, {"final-A", false, 0}, {"final-B", true, 0}, {"final-B", false, 1}} {
+		if got := f.Requests(request.branch, 2, request.full); got != request.want {
+			t.Fatalf("target requests branch=%s full=%t: got %d want %d", request.branch, request.full, got, request.want)
+		}
+	}
+	final.Release()
+	output := service.Failed(t, ctx) // Joins the natural exit and requires exit code 1.
+	if !strings.Contains(output, "component chain ethereum listener") {
+		t.Fatal("missing public listener failure")
+	}
+	for _, secret := range []string{dsn, f.HTTPURL(), f.WSURL(), "password=", "host=", "http://", "ws://"} {
+		if strings.Contains(output, secret) {
+			t.Fatal("service failure exposed database credentials or RPC endpoint")
+		}
+	}
+	if err := f.WaitForSubscribers(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	stopped := queryForkState(t, db)
+	assertNoA()
+	assertFinalObservationState(t, stopped, a[:2])
+	if !reflect.DeepEqual(before, stopped) {
+		t.Fatal("A final-observation mismatch produced partial writes or checkpoint progress")
+	}
+
+	restarted := startForkService(t, ctx, f, dsn)
+	f.Publish("final-B", 14)
+	waitForkState(t, ctx, db, progress, 2, b[2].Hash, true)
+	restarted.Stop(t)
+	if err := f.WaitForSubscribers(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	got := queryForkState(t, db)
+	assertNoA()
+	assertFinalObservationState(t, got, b[:3])
+	// Queries order blocks/transactions by height and descendants by ID. The
+	// exact manifest checks above exclude substitutions, duplicates and extras.
+	for _, pair := range []struct{ before, after any }{
+		{before.Blocks, got.Blocks[:2]}, {before.Transactions, got.Transactions[:2]},
+		{before.Raw, got.Raw[:2]}, {before.Native, got.Native[:2]}, {before.Token, got.Token[:2]},
+	} {
+		if !reflect.DeepEqual(pair.before, pair.after) {
+			t.Fatal("restart changed common-prefix IDs, business fields, payload or state")
+		}
+	}
+	if got.Cursors[0].ID != before.Cursors[0].ID || got.Cursors[0].Cursor <= before.Cursors[0].Cursor {
+		t.Fatal("restart replaced or failed to advance the transaction cursor")
+	}
+}
+
+// Private to CRS-AC-002: validate the exact consumed canonical manifest,
+// including standard RPC payloads independently reconstructed from identities.
+func assertFinalObservationState(t *testing.T, got forkState, want []testioc.ForkBlock) {
+	t.Helper()
+	last := want[len(want)-1]
+	if len(got.Checkpoints) != 1 || got.Checkpoints[0].ChainID != 1 || got.Checkpoints[0].LastProcessedHeight != last.Height || got.Checkpoints[0].LastProcessedHash != last.Hash || len(got.Reorgs) != 0 {
+		t.Fatalf("checkpoint/reorg mismatch: %+v %+v", got.Checkpoints, got.Reorgs)
+	}
+	if len(got.Blocks) != len(want) || len(got.Transactions) != len(want) || len(got.Raw) != len(want) || len(got.Native) != len(want) || len(got.Token) != len(want) {
+		t.Fatalf("exact manifest counts: block=%d tx=%d raw=%d native=%d token=%d want=%d", len(got.Blocks), len(got.Transactions), len(got.Raw), len(got.Native), len(got.Token), len(want))
+	}
+	str := func(p *string, want string) bool { return p != nil && *p == want }
+	assertJSON := func(name string, raw []byte, want any) {
+		t.Helper()
+		encoded, err := json.Marshal(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actual, expected any
+		if err := json.Unmarshal(raw, &actual); err != nil {
+			t.Fatalf("%s invalid JSON: %v", name, err)
+		}
+		if err := json.Unmarshal(encoded, &expected); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(actual, expected) {
+			t.Fatalf("%s payload does not match frozen manifest", name)
+		}
+	}
+	var rawID, nativeID, tokenID int64
+	for i, w := range want {
+		block, tx, raw, native, token := got.Blocks[i], got.Transactions[i], got.Raw[i], got.Native[i], got.Token[i]
+		if block.ChainID != 1 || block.BlockNumber != w.Height || block.BlockHash != w.Hash || block.ParentHash != w.Parent || block.BlockTime != 1 || block.TransactionCount != 1 || block.Status != domain.BlockStatusCanonical.ToString() || block.Finality != domain.FinalityConfirmed.ToString() || block.ChainVersion != 1 || block.CreatedAt <= 0 || !str(block.GasLimit, "21000") || !str(block.GasUsed, "21000") || block.RawBlock == nil || block.RawReceipts == nil {
+			t.Fatalf("block identity/business/state: %+v", block)
+		}
+		if tx.ChainID != 1 || tx.BlockNumber != w.Height || tx.BlockHash != w.Hash || tx.TxHash != w.Tx || tx.TxIndex != 0 || tx.FromAddress != addressOf('1') || !str(tx.ToAddress, addressOf('2')) || tx.Nonce != 0 || tx.Value != "1" || !str(tx.Input, "0x") || !str(tx.GasLimit, "21000") || !str(tx.GasUsed, "21000") || !str(tx.GasPrice, "1") || !str(tx.EffectiveGasPrice, "1") || !str(tx.TransactionFee, "21000") || tx.ExecutionStatus != domain.ExecutionStatusSuccess.ToString() || tx.ChainStatus != domain.ChainStatusActive.ToString() || tx.BlockTime != 1 || tx.CreatedAt <= 0 || tx.RawTransaction == nil || tx.RawReceipt == nil {
+			t.Fatalf("transaction identity/business/state: %+v", tx)
+		}
+		topics := []string{"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", "0x" + strings.Repeat("0", 24) + strings.Repeat("1", 40), "0x" + strings.Repeat("0", 24) + strings.Repeat("2", 40)}
+		data := "0x" + strings.Repeat("0", 63) + "1"
+		if raw.ID <= rawID || raw.ChainID != 1 || raw.BlockNumber != w.Height || raw.BlockHash != w.Hash || raw.TxHash != w.Tx || raw.TxIndex == nil || *raw.TxIndex != 0 || raw.LogIndex != 0 || raw.ContractAddress != addressOf('3') || !str(raw.Topic0, topics[0]) || !str(raw.Topic1, topics[1]) || !str(raw.Topic2, topics[2]) || raw.Topic3 != nil || !str(raw.EventData, data) || raw.ChainStatus != domain.ChainStatusActive.ToString() {
+			t.Fatalf("raw identity/business/state: %+v", raw)
+		}
+		for _, tr := range []postgre.ChainTransfer{native, token} {
+			if tr.ID <= 0 || tr.ChainID != 1 || tr.BlockNumber != w.Height || tr.BlockHash != w.Hash || tr.TxHash != w.Tx || tr.TxIndex == nil || *tr.TxIndex != 0 || tr.FromAddress != addressOf('1') || tr.ToAddress != addressOf('2') || !str(tr.Amount, "1") || tr.BatchIndex != 0 || tr.BlockTime != 1 || tr.ChainStatus != domain.ChainStatusActive.ToString() || tr.TokenID != nil {
+				t.Fatalf("transfer identity/business/state: %+v", tr)
+			}
+		}
+		if native.ID <= nativeID || token.ID <= tokenID || native.SourceType != domain.TransferSourceTransactionValue.ToString() || native.SourceIndex != domain.TransferSourceIndexTransactionValue.ToString() || native.TransferType != domain.TransferTypeNative.ToString() || native.TokenAddress != nil || native.RawData != nil || token.SourceType != domain.TransferSourceEventLog.ToString() || token.SourceIndex != "0" || token.TransferType != domain.TransferTypeERC20.ToString() || !str(token.TokenAddress, addressOf('3')) || token.RawData == nil {
+			t.Fatalf("native/token natural keys and payload: %+v %+v", native, token)
+		}
+		if block.ReorgID != nil || block.OrphanedAt != nil || tx.ReorgID != nil || tx.RevertedAt != nil || raw.ReorgID != nil || raw.RevertedAt != nil || native.ReorgID != nil || native.RevertedAt != nil || token.ReorgID != nil || token.RevertedAt != nil {
+			t.Fatal("canonical facts retained invalidation metadata")
+		}
+		number := fmt.Sprintf("0x%x", w.Height)
+		wantTx := map[string]any{"hash": w.Tx, "from": addressOf('1'), "to": addressOf('2'), "transactionIndex": "0x0", "nonce": "0x0", "type": "0x2", "gas": "0x5208", "gasPrice": "0x1", "value": "0x1", "input": "0x"}
+		wantLog := map[string]any{"address": addressOf('3'), "topics": topics, "data": data, "blockNumber": number, "blockHash": w.Hash, "transactionHash": w.Tx, "transactionIndex": "0x0", "logIndex": "0x0"}
+		wantReceipt := map[string]any{"transactionHash": w.Tx, "blockNumber": number, "blockHash": w.Hash, "transactionIndex": "0x0", "status": "0x1", "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "logs": []any{wantLog}}
+		wantBlock := map[string]any{"number": number, "hash": w.Hash, "parentHash": w.Parent, "timestamp": "0x1", "gasUsed": "0x5208", "gasLimit": "0x5208", "transactions": []any{wantTx}}
+		assertJSON("block", block.RawBlock.RawMessage(), wantBlock)
+		assertJSON("block receipts", block.RawReceipts.RawMessage(), []any{wantReceipt})
+		assertJSON("transaction", tx.RawTransaction.RawMessage(), wantTx)
+		assertJSON("receipt", tx.RawReceipt.RawMessage(), wantReceipt)
+		assertJSON("raw log", raw.RawLog.RawMessage(), wantLog)
+		assertJSON("token", token.RawData.RawMessage(), wantLog)
+		rawID, nativeID, tokenID = raw.ID, native.ID, token.ID
+	}
+	if len(got.Cursors) != 1 || got.Cursors[0].ID <= 0 || got.Cursors[0].Biz != "transaction" || got.Cursors[0].ChainFamily != "evm" || got.Cursors[0].Cursor != rawID {
+		t.Fatalf("transaction/evm cursor not at consumed raw maximum %d: %+v", rawID, got.Cursors)
+	}
 }
 
 // LE-22 catches rollback of an unconfirmed suffix across the confirmation boundary.

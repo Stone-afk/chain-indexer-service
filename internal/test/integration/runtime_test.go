@@ -26,6 +26,20 @@ import (
 	"gorm.io/gorm"
 )
 
+func reactivationBatch(b postgre.CanonicalBatch) domain.CanonicalBatch {
+	d := domain.CanonicalBatch{Block: domain.StoredBlock{ChainID: b.Block.ChainID, BlockNumber: b.Block.BlockNumber, BlockHash: b.Block.BlockHash, ParentHash: b.Block.ParentHash, BlockTime: b.Block.BlockTime, Status: b.Block.Status, Finality: b.Block.Finality, TransactionCount: b.Block.TransactionCount}, Checkpoint: domain.Checkpoint{ChainID: b.Checkpoint.ChainID, LastProcessedHeight: b.Checkpoint.LastProcessedHeight, LastProcessedHash: b.Checkpoint.LastProcessedHash}}
+	for _, v := range b.Transactions {
+		d.Transactions = append(d.Transactions, domain.StoredTransaction{ChainID: v.ChainID, BlockNumber: v.BlockNumber, BlockHash: v.BlockHash, TxHash: v.TxHash, TxIndex: v.TxIndex})
+	}
+	for _, v := range b.RawEvents {
+		d.RawEvents = append(d.RawEvents, domain.RawEvent{ID: v.ID, ChainID: v.ChainID, BlockNumber: v.BlockNumber, BlockHash: v.BlockHash, TxHash: v.TxHash, TxIndex: v.TxIndex, LogIndex: v.LogIndex})
+	}
+	for _, v := range b.NativeTransfers {
+		d.NativeTransfers = append(d.NativeTransfers, domain.Transfer{ID: v.ID, ChainID: v.ChainID, BlockNumber: v.BlockNumber, BlockHash: v.BlockHash, TxHash: v.TxHash, TxIndex: v.TxIndex, SourceType: v.SourceType, SourceIndex: v.SourceIndex})
+	}
+	return d
+}
+
 func runtimeBlockFixture(t *testing.T, f *testioc.RPCFixture, height int64, parentHash, blockHash, txHash string) map[string]any {
 	t.Helper()
 	events, err := abi.NewTransferEvents()
@@ -264,7 +278,8 @@ func TestCanonicalAtoBtoARestoresGeneratedToken(t *testing.T) {
 		native[i].ReorgID = nil
 		native[i].RevertedAt = nil
 	}
-	if err := postgre.NewChainDAO(db).SaveCanonicalBatch(ctx, postgre.CanonicalBatch{Block: b, Transactions: txs, RawEvents: raws, NativeTransfers: native, Checkpoint: cp}); err != nil {
+	reactivate := postgre.CanonicalBatch{Block: b, Transactions: txs, RawEvents: raws, NativeTransfers: native, Checkpoint: cp}
+	if err := repository.NewChainRepository(postgre.NewChainDAO(db)).ReactivateCanonicalBatch(ctx, reactivationBatch(reactivate), domain.BlockHeader{Number: b.BlockNumber, Hash: b.BlockHash, ParentHash: b.ParentHash}, rid); err != nil {
 		t.Fatal(err)
 	}
 	var afterBlock postgre.ChainBlock
@@ -799,7 +814,7 @@ func TestWorkerFirstThenCanonicalRecoveryConverges(t *testing.T) {
 				return err
 			}
 			opponentPID <- pid
-			return postgre.NewChainDAO(session).SaveCanonicalBatch(ctx, batch)
+			return repository.NewChainRepository(postgre.NewChainDAO(session)).ReactivateCanonicalBatch(ctx, reactivationBatch(batch), domain.BlockHeader{Number: batch.Block.BlockNumber, Hash: batch.Block.BlockHash, ParentHash: batch.Block.ParentHash}, "33333333-3333-3333-3333-333333333333")
 		})
 	}()
 	var waiterPID int32
@@ -933,7 +948,7 @@ func TestCanonicalRecoveryFirstThenWorkerConverges(t *testing.T) {
 			b.RawEvents = []postgre.ChainRawEvent{raw}
 			b.RawEvents[0].ID = rawID
 			b.RawEvents[0].ChainStatus = "ACTIVE"
-			return postgre.NewChainDAO(tx).SaveCanonicalBatch(ctx, b)
+			return repository.NewChainRepository(postgre.NewChainDAO(tx)).ReactivateCanonicalBatch(ctx, reactivationBatch(b), domain.BlockHeader{Number: b.Block.BlockNumber, Hash: b.Block.BlockHash, ParentHash: b.Block.ParentHash}, "44444444-4444-4444-4444-444444444444")
 		})
 	}()
 	select {
